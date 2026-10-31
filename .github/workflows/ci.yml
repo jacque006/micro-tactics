@@ -1,0 +1,33 @@
+name: ci
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  static-guards:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Game file exists and is under 2 MB
+        run: |
+          test -f index.html
+          SIZE=$(stat -c%s index.html)
+          test "$SIZE" -lt 2097152 || { echo "index.html is ${SIZE} bytes (limit 2097152)"; exit 1; }
+      - name: No dynamic code execution
+        run: "! grep -nE 'eval\\(|new Function' index.html"
+      - name: No network access at runtime
+        run: "! grep -nE 'fetch\\(|XMLHttpRequest|WebSocket|src=\"https?://' index.html"
+      - name: Debug contract present
+        run: "grep -q '__debug' index.html"
+
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - run: npm test

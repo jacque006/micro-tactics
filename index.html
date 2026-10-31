@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src 'self' data:; style-src 'unsafe-inline'; script-src 'sha256-Y/FiryfBU70uZGeAH2JHKtvjpHdHIoBRb1m+2+gdrqc='">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src 'self' data:; style-src 'unsafe-inline'; script-src 'sha256-Pa8GNiW2StAzartMibJof+DmD8kqIYoEJNBk41iaa2s='">
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Micro Tactics</title>
@@ -44,8 +44,7 @@ let units = [];              // heroes, thralls and skeletons
 let piles = [];              // bone piles: { x, y, t } (t = enemy rounds until reassembly)
 let turn = 1;
 let selected = null;         // currently selected player unit
-let cursor = { x: 2, y: 5 }; // keyboard cursor (keyboard is an optional extra input)
-let cursorVisible = false;
+let cursor = { x: 2, y: 5 }; // kept only for the __debug test contract; no longer driven by input
 let msg = "";
 let enemyQueue = [], enemyTimer = 0;
 
@@ -237,30 +236,8 @@ function handlePoint(px, py) {
 }
 canvas.addEventListener("pointerdown", (ev) => {
   ev.preventDefault();
-  cursorVisible = false;
-  const r = canvas.getBoundingClientRect();
+  const r =canvas.getBoundingClientRect();
   handlePoint((ev.clientX - r.left) * VIEW_W / r.width, (ev.clientY - r.top) * VIEW_H / r.height);
-});
-
-// Optional keyboard: WASD/arrows move a cursor, Space/Enter = tap, E = end turn.
-const KEY_MOVES = {
-  a: [-1, 0], arrowleft: [-1, 0], d: [1, 0], arrowright: [1, 0],
-  w: [0, -1], arrowup: [0, -1], s: [0, 1], arrowdown: [0, 1]
-};
-window.addEventListener("keydown", (ev) => {
-  const k = ev.key.toLowerCase();
-  if (phase === "title") startGame();
-  const move = KEY_MOVES[k];
-  if (move) {
-    cursorVisible = true;
-    cursor.x = Math.max(0, Math.min(COLS - 1, cursor.x + move[0]));
-    cursor.y = Math.max(0, Math.min(ROWS - 1, cursor.y + move[1]));
-  } else if (k === " " || k === "enter") {
-    if (phase === "over" || phase === "win") startGame(); else tap(cursor.x, cursor.y);
-  } else if (k === "e") {
-    endTurn();
-  }
-  if (move || k === " ") ev.preventDefault();
 });
 
 // ---------- Drawing ----------
@@ -387,10 +364,6 @@ function draw() {
   drawBoard();
   drawHighlights();
   units.slice().sort((a, b) => a.y - b.y).forEach(drawUnit);
-  if (cursorVisible && phase === "player") {
-    ctx.strokeStyle = "#ffffff";
-    ctx.strokeRect(cursor.x * TILE + 1.5, cursor.y * TILE + 1.5, TILE - 3, TILE - 3);
-  }
   drawPanel();
   if (phase === "title")
     overlayScreen("MICRO TACTICS", [
@@ -403,9 +376,9 @@ function draw() {
       "raise them as thralls (Bonewright),",
       "or block them by standing on them.",
       "",
-      "Tap or press any key to start"], "#e8e0c8");
-  if (phase === "over") overlayScreen("DEFEAT", ["Your heroes have fallen.", "Turn " + turn, "", "Tap or press Enter to retry"], "#c0392b");
-  if (phase === "win") overlayScreen("VICTORY!", ["Every bone is accounted for.", "Won on turn " + turn, "", "Tap or press Enter to play again"], "#e6c34a");
+      "Tap to start"], "#e8e0c8");
+  if (phase === "over") overlayScreen("DEFEAT", ["Your heroes have fallen.", "Turn " + turn, "", "Tap to retry"], "#c0392b");
+  if (phase === "win") overlayScreen("VICTORY!", ["Every bone is accounted for.", "Won on turn " + turn, "", "Tap to play again"], "#e6c34a");
 }
 
 // ---------- Main loop ----------
@@ -418,7 +391,7 @@ function frame(now) {
 }
 
 // Test contract: smoke tests read live state through these getters.
-// "player" is the player side (heroes, selection, keyboard cursor); "wave" is the turn number.
+// "player" is the player side (heroes, selection, legacy cursor); "wave" is the turn number.
 startGame();
 phase = "title";
 Object.defineProperty(window, "__debug", {

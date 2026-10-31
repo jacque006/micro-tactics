@@ -27,3 +27,6 @@ jobs:
         uses: anthropics/claude-code-action@v1
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          claude_args: >-
+            --allowedTools
+            "Bash(python3 tools/pin_hash.py:*),Bash(npm ci:*),Bash(npm test:*),Bash(npx playwright:*),Bash(git add:*),Bash(git commit:*),Bash(git push:*)"

@@ -1,0 +1,16 @@
+name: preview
+on: pull_request
+permissions:
+  contents: write
+  pull-requests: write
+jobs:
+  preview:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+      - uses: rossjrw/pr-preview-action@v1
+        with:
+          source-dir: .
+          umbrella-dir: pr-preview
+          comment-interval: 10

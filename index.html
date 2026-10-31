@@ -1,1 +1,349 @@
-<script></script>
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src 'self' data:; style-src 'unsafe-inline'; script-src 'sha256-/3AUlLP+Y3GDMd9QsQG3YJbZKDNreHud6+WRqvnqEcU='">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Wasteland Skeletons</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #14110d; }
+  body { display: flex; align-items: center; justify-content: center; }
+  canvas { width: min(100vw, 133.33vh); image-rendering: pixelated; background: #000; }
+</style>
+</head>
+<body>
+<canvas id="game" width="320" height="240"></canvas>
+<script>
+"use strict";
+// ---------- Constants ----------
+const TILE = 16;                 // the one and only tile size
+const MAP_W = 40, MAP_H = 30;    // map size in tiles
+const VIEW_W = 320, VIEW_H = 240;
+const STEP = 1 / 60;             // fixed update timestep (seconds)
+const WAVES_TO_WIN = 5;
+
+const canvas = document.getElementById("game");
+const ctx = canvas.getContext("2d");
+ctx.imageSmoothingEnabled = false;
+
+// ---------- Tilemap (1 = wall, 0 = floor) ----------
+const map = [];
+function buildMap() {
+  for (let ty = 0; ty < MAP_H; ty++) {
+    map[ty] = [];
+    for (let tx = 0; tx < MAP_W; tx++) {
+      const border = tx === 0 || ty === 0 || tx === MAP_W - 1 || ty === MAP_H - 1;
+      // deterministic scattering of rock clusters, kept clear of the centre spawn
+      const hash = (tx * 73856093 ^ ty * 19349663) >>> 0;
+      const rock = hash % 17 === 0;
+      const nearCentre = Math.abs(tx - MAP_W / 2) < 4 && Math.abs(ty - MAP_H / 2) < 4;
+      map[ty][tx] = border || (rock && !nearCentre) ? 1 : 0;
+    }
+  }
+}
+function isWall(tx, ty) {
+  return tx < 0 || ty < 0 || tx >= MAP_W || ty >= MAP_H || map[ty][tx] === 1;
+}
+function hitsWall(x, y, w, h) {
+  const x0 = Math.floor(x / TILE), x1 = Math.floor((x + w - 1) / TILE);
+  const y0 = Math.floor(y / TILE), y1 = Math.floor((y + h - 1) / TILE);
+  for (let ty = y0; ty <= y1; ty++)
+    for (let tx = x0; tx <= x1; tx++)
+      if (isWall(tx, ty)) return true;
+  return false;
+}
+// Move one axis at a time so entities slide along walls.
+function moveEntity(e, dx, dy) {
+  if (dx && !hitsWall(e.x + dx, e.y, e.w, e.h)) e.x += dx;
+  if (dy && !hitsWall(e.x, e.y + dy, e.w, e.h)) e.y += dy;
+}
+function overlap(a, b) {
+  return a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
+}
+
+// ---------- Input ----------
+const keys = {};
+let state = "title"; // title | play | over | win
+window.addEventListener("keydown", (ev) => {
+  const k = ev.key.toLowerCase();
+  keys[k] = true;
+  if ([" ", "arrowup", "arrowdown", "arrowleft", "arrowright"].includes(k)) ev.preventDefault();
+  if (state === "title") startGame();
+  else if ((state === "over" || state === "win") && (k === "enter" || k === "r")) startGame();
+});
+window.addEventListener("keyup", (ev) => { keys[ev.key.toLowerCase()] = false; });
+window.addEventListener("blur", () => { for (const k in keys) keys[k] = false; });
+
+// ---------- Game state ----------
+let player, enemies, particles, wave, score, waveDelay, time;
+
+function startGame() {
+  buildMap();
+  player = {
+    x: MAP_W * TILE / 2, y: MAP_H * TILE / 2, w: 10, h: 10,
+    hp: 5, maxHp: 5, speed: 70, face: { x: 0, y: 1 },
+    attackT: 0, cooldownT: 0, swingHit: [], invulnT: 0, kx: 0, ky: 0
+  };
+  enemies = [];
+  particles = [];
+  wave = 0;
+  score = 0;
+  waveDelay = 1;
+  time = 0;
+  state = "play";
+}
+
+function spawnWave() {
+  wave++;
+  const count = 2 + wave * 2;
+  for (let i = 0; i < count; i++) {
+    for (let tries = 0; tries < 50; tries++) {
+      const x = (1 + Math.random() * (MAP_W - 2)) * TILE;
+      const y = (1 + Math.random() * (MAP_H - 2)) * TILE;
+      const e = {
+        x, y, w: 10, h: 12, hp: 2, speed: 22 + wave * 4, state: "wander",
+        dir: { x: 0, y: 0 }, timer: 0, flash: 0, kx: 0, ky: 0, anim: Math.random() * 6
+      };
+      if (!hitsWall(x, y, e.w, e.h) && Math.hypot(x - player.x, y - player.y) > 110) {
+        enemies.push(e);
+        break;
+      }
+    }
+  }
+}
+
+function burst(x, y, color, n) {
+  for (let i = 0; i < n; i++) {
+    const a = Math.random() * Math.PI * 2, s = 20 + Math.random() * 50;
+    particles.push({ x, y, vx: Math.cos(a) * s, vy: Math.sin(a) * s, life: 0.3 + Math.random() * 0.3, color });
+  }
+}
+
+// ---------- Update ----------
+function update(dt) {
+  if (state !== "play") return;
+  time += dt;
+  updatePlayer(dt);
+  for (const e of enemies) updateEnemy(e, dt);
+  enemies = enemies.filter((e) => e.hp > 0);
+
+  for (const p of particles) { p.x += p.vx * dt; p.y += p.vy * dt; p.life -= dt; }
+  particles = particles.filter((p) => p.life > 0);
+
+  if (enemies.length === 0) {
+    waveDelay -= dt;
+    if (waveDelay <= 0) {
+      if (wave >= WAVES_TO_WIN) state = "win";
+      else { spawnWave(); waveDelay = 2; }
+    }
+  }
+  if (player.hp <= 0) state = "over";
+}
+
+function updatePlayer(dt) {
+  const p = player;
+  let dx = (keys["d"] || keys["arrowright"] ? 1 : 0) - (keys["a"] || keys["arrowleft"] ? 1 : 0);
+  let dy = (keys["s"] || keys["arrowdown"] ? 1 : 0) - (keys["w"] || keys["arrowup"] ? 1 : 0);
+  if (dx || dy) {
+    const len = Math.hypot(dx, dy);
+    dx /= len; dy /= len;
+    p.face = { x: dx, y: dy };
+  }
+  moveEntity(p, dx * p.speed * dt + p.kx * dt, dy * p.speed * dt + p.ky * dt);
+  p.kx *= 0.85; p.ky *= 0.85;
+
+  p.invulnT = Math.max(0, p.invulnT - dt);
+  p.cooldownT = Math.max(0, p.cooldownT - dt);
+  p.attackT = Math.max(0, p.attackT - dt);
+  if (keys[" "] && p.cooldownT === 0) {
+    p.attackT = 0.12;
+    p.cooldownT = 0.35;
+    p.swingHit = [];
+  }
+  if (p.attackT > 0) {
+    const box = attackBox();
+    for (const e of enemies) {
+      if (p.swingHit.includes(e) || !overlap(box, e)) continue;
+      p.swingHit.push(e);
+      e.hp--;
+      e.flash = 0.12;
+      const kx = e.x - p.x, ky = e.y - p.y, kl = Math.hypot(kx, ky) || 1;
+      e.kx = kx / kl * 160; e.ky = ky / kl * 160;
+      burst(e.x + e.w / 2, e.y + e.h / 2, "#e8e0c8", 5);
+      if (e.hp <= 0) { score += 10 * wave; burst(e.x + e.w / 2, e.y + e.h / 2, "#c9b98a", 12); }
+    }
+  }
+}
+
+function attackBox() {
+  const p = player;
+  const cx = p.x + p.w / 2 + p.face.x * 11, cy = p.y + p.h / 2 + p.face.y * 11;
+  return { x: cx - 8, y: cy - 8, w: 16, h: 16 };
+}
+
+function updateEnemy(e, dt) {
+  const p = player;
+  e.flash = Math.max(0, e.flash - dt);
+  e.anim += dt * 8;
+  e.timer -= dt;
+  const dx = p.x - e.x, dy = p.y - e.y, dist = Math.hypot(dx, dy) || 1;
+
+  // state transitions: wander -> chase -> attack (windup, then lunge)
+  if (e.state === "wander" && dist < 90) e.state = "chase";
+  else if (e.state === "chase" && dist > 140) e.state = "wander";
+  else if (e.state === "chase" && dist < 18) { e.state = "attack"; e.timer = 0.6; }
+  else if (e.state === "attack" && e.timer <= 0) e.state = "chase";
+
+  let vx = 0, vy = 0;
+  if (e.state === "wander") {
+    if (e.timer <= 0) {
+      e.timer = 0.8 + Math.random() * 1.5;
+      const a = Math.random() * Math.PI * 2;
+      e.dir = Math.random() < 0.3 ? { x: 0, y: 0 } : { x: Math.cos(a), y: Math.sin(a) };
+    }
+    vx = e.dir.x * e.speed * 0.5; vy = e.dir.y * e.speed * 0.5;
+  } else if (e.state === "chase") {
+    vx = dx / dist * e.speed; vy = dy / dist * e.speed;
+  } else if (e.state === "attack" && e.timer < 0.25) {
+    vx = dx / dist * e.speed * 3; vy = dy / dist * e.speed * 3; // lunge
+  }
+  moveEntity(e, (vx + e.kx) * dt, (vy + e.ky) * dt);
+  e.kx *= 0.85; e.ky *= 0.85;
+
+  if (p.invulnT === 0 && overlap(e, p)) {
+    p.hp--;
+    p.invulnT = 1;
+    p.kx = dx / dist * 160; p.ky = dy / dist * 160; // push away from the enemy
+    burst(p.x + p.w / 2, p.y + p.h / 2, "#b02a1e", 8);
+  }
+}
+
+// ---------- Drawing ----------
+function drawTile(tx, ty) {
+  const x = tx * TILE, y = ty * TILE;
+  const n = (tx * 31 + ty * 17) % 7;
+  if (map[ty][tx] === 1) {
+    ctx.fillStyle = "#5a4a3a"; ctx.fillRect(x, y, TILE, TILE);
+    ctx.fillStyle = "#74604a"; ctx.fillRect(x, y, TILE, 4);
+    ctx.fillStyle = "#3e3226"; ctx.fillRect(x, y + 12, TILE, 4);
+  } else {
+    ctx.fillStyle = (tx + ty) % 2 ? "#a88b5c" : "#9f8355"; ctx.fillRect(x, y, TILE, TILE);
+    ctx.fillStyle = "#8a7048";
+    ctx.fillRect(x + n * 2, y + (n * 5) % 14, 2, 1);
+  }
+}
+
+function drawSkeleton(e) {
+  const x = Math.round(e.x - camX), y = Math.round(e.y - camY);
+  const bone = e.flash > 0 ? "#ffffff" : e.state === "attack" && e.timer > 0.25 ? "#ffb0a0" : "#e8e0c8";
+  const step = Math.sin(e.anim) > 0 ? 1 : 0;
+  ctx.fillStyle = "#00000044"; ctx.fillRect(x, y + 11, 10, 2);
+  ctx.fillStyle = bone;
+  ctx.fillRect(x + 2, y, 6, 5);            // skull
+  ctx.fillRect(x + 3, y + 5, 4, 4);        // ribs
+  ctx.fillRect(x + step, y + 9, 2, 3);     // legs, alternating
+  ctx.fillRect(x + 7 - step, y + 9, 2, 3);
+  ctx.fillRect(x, y + 5, 2, 3); ctx.fillRect(x + 8, y + 5, 2, 3); // arms
+  ctx.fillStyle = "#1a1410";
+  ctx.fillRect(x + 3, y + 2, 1, 2); ctx.fillRect(x + 6, y + 2, 1, 2); // eyes
+  ctx.fillRect(x + 3, y + 6, 4, 1);
+}
+
+function drawPlayer() {
+  const p = player;
+  if (p.invulnT > 0 && Math.floor(p.invulnT * 12) % 2) return; // blink while invulnerable
+  const x = Math.round(p.x - camX), y = Math.round(p.y - camY);
+  ctx.fillStyle = "#00000044"; ctx.fillRect(x, y + 9, 10, 2);
+  ctx.fillStyle = "#3d6f8c"; ctx.fillRect(x + 1, y + 4, 8, 6);   // body
+  ctx.fillStyle = "#e0b58a"; ctx.fillRect(x + 2, y, 6, 5);       // head
+  ctx.fillStyle = "#5b3a24"; ctx.fillRect(x + 2, y, 6, 2);       // hair
+  ctx.fillStyle = "#1a1410";
+  ctx.fillRect(x + 3 + Math.round(p.face.x), y + 3, 1, 1);
+  ctx.fillRect(x + 6 + Math.round(p.face.x), y + 3, 1, 1);
+  if (p.attackT > 0) { // sword swing
+    const b = attackBox();
+    ctx.fillStyle = "#dfe6ea";
+    ctx.fillRect(Math.round(b.x - camX + 4), Math.round(b.y - camY + 4), 8, 8);
+  }
+}
+
+function drawText(text, x, y, size, color, align) {
+  ctx.font = "bold " + size + "px monospace";
+  ctx.textAlign = align || "center";
+  ctx.fillStyle = "#000"; ctx.fillText(text, x + 1, y + 1);
+  ctx.fillStyle = color || "#f0e6c8"; ctx.fillText(text, x, y);
+}
+
+function drawHud() {
+  for (let i = 0; i < player.maxHp; i++) {
+    ctx.fillStyle = i < player.hp ? "#c0392b" : "#401512";
+    ctx.fillRect(6 + i * 10, 6, 8, 8);
+  }
+  drawText("SCORE " + score, VIEW_W - 6, 14, 10, "#f0e6c8", "right");
+  drawText("WAVE " + wave + "/" + WAVES_TO_WIN, VIEW_W / 2, 14, 10);
+}
+
+function overlayScreen(title, lines, color) {
+  ctx.fillStyle = "#000000b0"; ctx.fillRect(0, 0, VIEW_W, VIEW_H);
+  drawText(title, VIEW_W / 2, 90, 24, color);
+  lines.forEach((l, i) => drawText(l, VIEW_W / 2, 125 + i * 16, 10));
+}
+
+let camX = 0, camY = 0;
+function draw() {
+  ctx.fillStyle = "#14110d"; ctx.fillRect(0, 0, VIEW_W, VIEW_H);
+  if (state === "title") {
+    overlayScreen("WASTELAND SKELETONS",
+      ["WASD / Arrows: move   Space: attack", "Survive " + WAVES_TO_WIN + " waves", "Press any key to start"], "#e8e0c8");
+    return;
+  }
+  camX = Math.max(0, Math.min(MAP_W * TILE - VIEW_W, player.x + player.w / 2 - VIEW_W / 2));
+  camY = Math.max(0, Math.min(MAP_H * TILE - VIEW_H, player.y + player.h / 2 - VIEW_H / 2));
+  ctx.save();
+  ctx.translate(-Math.round(camX), -Math.round(camY));
+  const tx0 = Math.floor(camX / TILE), ty0 = Math.floor(camY / TILE);
+  for (let ty = ty0; ty <= ty0 + VIEW_H / TILE + 1 && ty < MAP_H; ty++)
+    for (let tx = tx0; tx <= tx0 + VIEW_W / TILE + 1 && tx < MAP_W; tx++)
+      drawTile(tx, ty);
+  ctx.restore();
+
+  enemies.slice().sort((a, b) => a.y - b.y).forEach(drawSkeleton);
+  drawPlayer();
+  for (const p of particles) {
+    ctx.fillStyle = p.color;
+    ctx.fillRect(Math.round(p.x - camX), Math.round(p.y - camY), 2, 2);
+  }
+  drawHud();
+  if (state === "play" && enemies.length === 0 && wave < WAVES_TO_WIN)
+    drawText("Wave " + (wave + 1) + " incoming...", VIEW_W / 2, 60, 12);
+  if (state === "over")
+    overlayScreen("GAME OVER", ["Score: " + score + "   Wave: " + wave, "Press Enter or R to restart"], "#c0392b");
+  if (state === "win")
+    overlayScreen("VICTORY!", ["The wasteland is quiet. Score: " + score, "Press Enter or R to play again"], "#e6c34a");
+}
+
+// ---------- Main loop (fixed timestep) ----------
+let last = performance.now(), acc = 0;
+function frame(now) {
+  acc += Math.min(0.25, (now - last) / 1000);
+  last = now;
+  while (acc >= STEP) { update(STEP); acc -= STEP; }
+  draw();
+  requestAnimationFrame(frame);
+}
+
+// Test contract: smoke tests read live state through these getters.
+buildMap();
+startGame();
+state = "title";
+Object.defineProperty(window, "__debug", {
+  value: {
+    get player() { return player; },
+    get enemies() { return enemies; },
+    get wave() { return wave; }
+  }
+});
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>

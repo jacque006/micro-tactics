@@ -17,12 +17,19 @@ test("CSP is sealed", async ({ page }) => {
   expect(csp).toContain("default-src 'none'");
 });
 
-test("player moves with WASD", async ({ page }) => {
+test("tapping a hero selects it", async ({ page }) => {
   await page.goto("/index.html");
-  const before = await page.evaluate(() => JSON.stringify(window.__debug?.player));
-  await page.keyboard.down("d");
-  await page.waitForTimeout(400);
-  await page.keyboard.up("d");
-  const after = await page.evaluate(() => JSON.stringify(window.__debug?.player));
-  expect(after).not.toBe(before);
+  const canvas = page.locator("#game");
+  const clickTile = async (tx, ty) => {
+    const box = await canvas.boundingBox();
+    const size = await canvas.evaluate((c) => ({ w: c.width, h: c.height }));
+    await page.mouse.click(
+      box.x + ((tx * 16 + 8) * box.width) / size.w,
+      box.y + ((ty * 16 + 8) * box.height) / size.h
+    );
+  };
+  await clickTile(0, 0); // title screen: tap to start
+  expect(await page.evaluate(() => window.__debug?.player.selected)).toBeFalsy();
+  await clickTile(1, 5); // the Knight's starting tile
+  expect(await page.evaluate(() => window.__debug?.player.selected)).toBe("knight");
 });

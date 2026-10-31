@@ -4,8 +4,6 @@ on:
     types: [created]
   issues:
     types: [opened, assigned]
-  pull_request:
-    types: [opened]
 
 concurrency:
   group: claude-agent

@@ -1,0 +1,407 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src 'self' data:; style-src 'unsafe-inline'; script-src 'sha256-Pa8GNiW2StAzartMibJof+DmD8kqIYoEJNBk41iaa2s='">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Micro Tactics</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #14110d; }
+  body { display: flex; align-items: center; justify-content: center; }
+  canvas { width: min(100vw, 106.66vh); image-rendering: pixelated; background: #000; touch-action: none; }
+</style>
+</head>
+<body>
+<canvas id="game" width="256" height="240"></canvas>
+<script>
+"use strict";
+// ---------- Constants ----------
+const TILE = 16;                          // the one and only tile size
+const COLS = 16, ROWS = 12;               // board: 256x192, fits entirely in the canvas
+const VIEW_W = 256, VIEW_H = 240;         // canvas = board + 48px info panel underneath
+const PANEL_Y = ROWS * TILE;
+const BUTTON = { x: 176, y: 198, w: 72, h: 32 };   // END TURN button
+const REASSEMBLE_TURNS = 2;               // enemy rounds before a bone pile rebuilds itself
+const DIRS = [[1, 0], [-1, 0], [0, 1], [0, -1]];
+
+const DEFS = {
+  knight:   { name: "Knight",      hp: 6, move: 3, minR: 1, maxR: 1, dmg: 2, hint: "Hit adjacent foe (2 dmg) or smash a bone pile." },
+  archer:   { name: "Archer",      hp: 4, move: 3, minR: 2, maxR: 4, dmg: 1, hint: "Shoot a foe 2-4 tiles away." },
+  mage:     { name: "Bonewright",  hp: 3, move: 3, minR: 1, maxR: 3, dmg: 1, hint: "Bolt a foe, or RAISE a bone pile as a thrall." },
+  thrall:   { name: "Bone Thrall", hp: 2, move: 3, minR: 1, maxR: 1, dmg: 1, hint: "Raised skeleton fighting for you." },
+  skeleton: { name: "Skeleton",    hp: 2, move: 3, minR: 1, maxR: 1, dmg: 1, hint: "Dies into bones, then reassembles." }
+};
+const HEROES = ["knight", "archer", "mage"];
+const ROCKS = [[5, 3], [5, 4], [8, 5], [8, 6], [10, 2], [7, 9], [7, 10], [11, 8], [3, 7], [12, 4]];
+
+const canvas = document.getElementById("game");
+const ctx = canvas.getContext("2d");
+ctx.imageSmoothingEnabled = false;
+
+// ---------- Game state ----------
+let phase = "title";         // title | player | enemy | over | win
+let units = [];              // heroes, thralls and skeletons
+let piles = [];              // bone piles: { x, y, t } (t = enemy rounds until reassembly)
+let turn = 1;
+let selected = null;         // currently selected player unit
+let cursor = { x: 2, y: 5 }; // kept only for the __debug test contract; no longer driven by input
+let msg = "";
+let enemyQueue = [], enemyTimer = 0;
+
+function isRock(x, y) { return ROCKS.some((r) => r[0] === x && r[1] === y); }
+function inBoard(x, y) { return x >= 0 && y >= 0 && x < COLS && y < ROWS; }
+function unitAt(x, y) { return units.find((u) => u.x === x && u.y === y); }
+function pileAt(x, y) { return piles.find((p) => p.x === x && p.y === y); }
+function dist(a, b) { return Math.abs(a.x - b.x) + Math.abs(a.y - b.y); }
+function makeUnit(type, side, x, y) {
+  return { type: type, side: side, x: x, y: y, hp: DEFS[type].hp, moved: false, done: false, flash: 0 };
+}
+
+function startGame() {
+  units = [
+    makeUnit("knight", "player", 1, 5), makeUnit("archer", "player", 1, 3), makeUnit("mage", "player", 1, 7),
+    makeUnit("skeleton", "enemy", 13, 3), makeUnit("skeleton", "enemy", 13, 5), makeUnit("skeleton", "enemy", 14, 7),
+    makeUnit("skeleton", "enemy", 12, 9), makeUnit("skeleton", "enemy", 14, 1)
+  ];
+  piles = [];
+  turn = 1;
+  selected = null;
+  cursor = { x: 2, y: 5 };
+  msg = "Select a hero to begin.";
+  phase = "player";
+}
+
+// ---------- Rules ----------
+// Tiles a unit can walk to this turn (includes its own tile). Units and rocks block.
+function reachable(u) {
+  const seen = {};
+  seen[u.x + "," + u.y] = true;
+  const out = [{ x: u.x, y: u.y }];
+  const queue = [{ x: u.x, y: u.y, d: 0 }];
+  while (queue.length) {
+    const c = queue.shift();
+    if (c.d === DEFS[u.type].move) continue;
+    for (const [dx, dy] of DIRS) {
+      const nx = c.x + dx, ny = c.y + dy, k = nx + "," + ny;
+      if (seen[k] || !inBoard(nx, ny) || isRock(nx, ny) || unitAt(nx, ny)) continue;
+      seen[k] = true;
+      out.push({ x: nx, y: ny });
+      queue.push({ x: nx, y: ny, d: c.d + 1 });
+    }
+  }
+  return out;
+}
+
+// Things a unit can act on from where it stands: foes ("hit"), and bone piles
+// (knight "smash", bonewright "raise").
+function targetsFor(u) {
+  const d = DEFS[u.type], out = [];
+  for (const o of units) {
+    const r = dist(u, o);
+    if (o.side !== u.side && r >= d.minR && r <= d.maxR) out.push({ x: o.x, y: o.y, kind: "hit" });
+  }
+  if (u.type === "knight" || u.type === "mage") {
+    for (const p of piles) {
+      const r = dist(u, p);
+      if (r < d.minR || r > d.maxR || unitAt(p.x, p.y)) continue;
+      out.push({ x: p.x, y: p.y, kind: u.type === "knight" ? "smash" : "raise" });
+    }
+  }
+  return out;
+}
+
+function damage(target, n) {
+  target.hp -= n;
+  target.flash = 0.25;
+  if (target.hp > 0) return;
+  units = units.filter((u) => u !== target);
+  if (target.type === "skeleton") {
+    piles.push({ x: target.x, y: target.y, t: REASSEMBLE_TURNS });
+    msg = "Skeleton falls... its bones will reassemble!";
+  } else {
+    msg = DEFS[target.type].name + " has fallen.";
+  }
+}
+
+function perform(u, t) {
+  if (t.kind === "hit") {
+    damage(unitAt(t.x, t.y), DEFS[u.type].dmg);
+  } else if (t.kind === "smash") {
+    piles = piles.filter((p) => p !== pileAt(t.x, t.y));
+    msg = "Bones scattered for good.";
+  } else {
+    piles = piles.filter((p) => p !== pileAt(t.x, t.y));
+    const th = makeUnit("thrall", "player", t.x, t.y);
+    th.moved = true;   // it has just risen: acts next turn
+    th.done = true;
+    units.push(th);
+    msg = "A bone thrall rises to serve you!";
+  }
+  u.done = true;
+  selected = null;
+  checkEnd();
+}
+
+function checkEnd() {
+  if (!units.some((u) => HEROES.includes(u.type))) phase = "over";
+  else if (!units.some((u) => u.side === "enemy") && piles.length === 0) phase = "win";
+}
+
+// ---------- Player turn ----------
+function tap(x, y) {
+  if (phase !== "player") return;
+  const u = selected;
+  if (u) {
+    if (!u.moved && (x !== u.x || y !== u.y) && reachable(u).some((t) => t.x === x && t.y === y)) {
+      u.x = x; u.y = y; u.moved = true;
+      if (targetsFor(u).length === 0) { u.done = true; selected = null; msg = "Moved."; autoEndTurn(); }
+      return;
+    }
+    const t = targetsFor(u).find((c) => c.x === x && c.y === y);
+    if (t) { perform(u, t); autoEndTurn(); return; }
+    if (x === u.x && y === u.y) { u.done = true; selected = null; msg = "Waiting."; autoEndTurn(); return; }
+  }
+  const other = unitAt(x, y);
+  selected = other && other.side === "player" && !other.done ? other : null;
+  if (selected) msg = DEFS[selected.type].hint;
+}
+
+function autoEndTurn() {
+  if (phase === "player" && units.every((u) => u.side !== "player" || u.done)) endTurn();
+}
+
+function endTurn() {
+  if (phase !== "player") return;
+  selected = null;
+  enemyQueue = units.filter((u) => u.side === "enemy");
+  enemyTimer = 0.5;
+  phase = "enemy";
+  msg = "Enemy turn...";
+}
+
+// ---------- Enemy turn ----------
+function enemyAct(u) {
+  const foes = units.filter((f) => f.side === "player");
+  if (!foes.length) return;
+  let best = null, bestScore = Infinity;
+  for (const t of reachable(u))
+    for (const f of foes) {
+      const score = dist(t, f) * 10 + f.hp;
+      if (score < bestScore) { bestScore = score; best = t; }
+    }
+  u.x = best.x; u.y = best.y;
+  const adjacent = foes.filter((f) => dist(u, f) === 1).sort((a, b) => a.hp - b.hp);
+  if (adjacent.length) damage(adjacent[0], DEFS[u.type].dmg);
+}
+
+// Bone piles count down; at zero they rebuild into a 1 HP skeleton if nobody stands on them.
+function reassemblePiles() {
+  for (const p of piles) if (p.t > 0) p.t--;
+  for (const p of piles.slice()) {
+    if (p.t > 0 || unitAt(p.x, p.y)) continue;
+    const s = makeUnit("skeleton", "enemy", p.x, p.y);
+    s.hp = 1;
+    s.flash = 0.4;
+    units.push(s);
+    piles = piles.filter((q) => q !== p);
+    msg = "Bones reassemble into a skeleton!";
+  }
+}
+
+function finishEnemyTurn() {
+  reassemblePiles();
+  for (const u of units) { u.moved = false; u.done = false; }
+  turn++;
+  phase = "player";
+  checkEnd();
+}
+
+function update(dt) {
+  for (const u of units) u.flash = Math.max(0, u.flash - dt);
+  if (phase !== "enemy") return;
+  enemyTimer -= dt;
+  if (enemyTimer > 0) return;
+  const u = enemyQueue.shift();
+  if (!u) { finishEnemyTurn(); return; }
+  if (units.includes(u)) enemyAct(u);
+  enemyTimer = 0.4;
+  if (!units.some((h) => HEROES.includes(h.type))) phase = "over";
+}
+
+// ---------- Input (pointer events cover mouse and touch) ----------
+function handlePoint(px, py) {
+  if (phase === "title" || phase === "over" || phase === "win") { startGame(); return; }
+  if (px >= BUTTON.x && px < BUTTON.x + BUTTON.w && py >= BUTTON.y && py < BUTTON.y + BUTTON.h) { endTurn(); return; }
+  if (py < PANEL_Y) tap(Math.floor(px / TILE), Math.floor(py / TILE));
+}
+canvas.addEventListener("pointerdown", (ev) => {
+  ev.preventDefault();
+  const r =canvas.getBoundingClientRect();
+  handlePoint((ev.clientX - r.left) * VIEW_W / r.width, (ev.clientY - r.top) * VIEW_H / r.height);
+});
+
+// ---------- Drawing ----------
+function rect(x, y, w, h, color) { ctx.fillStyle = color; ctx.fillRect(x, y, w, h); }
+
+function drawText(text, x, y, size, color, align) {
+  ctx.font = "bold " + size + "px monospace";
+  ctx.textAlign = align || "left";
+  ctx.fillStyle = "#000"; ctx.fillText(text, x + 1, y + 1);
+  ctx.fillStyle = color || "#f0e6c8"; ctx.fillText(text, x, y);
+}
+
+function drawSkeleton(x, y, eye, tint) {
+  rect(x + 4, y + 2, 8, 5, tint); rect(x + 6, y + 7, 4, 1, tint);          // skull, jaw
+  rect(x + 5, y + 4, 2, 2, eye); rect(x + 9, y + 4, 2, 2, eye);            // eyes
+  rect(x + 5, y + 8, 6, 4, tint); rect(x + 5, y + 9, 6, 1, "#00000055");   // ribs
+  rect(x + 3, y + 8, 2, 4, tint); rect(x + 11, y + 8, 2, 4, tint);         // arms
+  rect(x + 5, y + 12, 2, 2, tint); rect(x + 9, y + 12, 2, 2, tint);        // legs
+}
+
+function drawKnight(x, y) {
+  rect(x + 7, y + 1, 2, 2, "#c0392b");                                      // plume
+  rect(x + 5, y + 3, 6, 4, "#aab6c4"); rect(x + 6, y + 5, 4, 1, "#1a1410"); // helmet, visor
+  rect(x + 4, y + 7, 8, 5, "#7b8da0");                                      // armour
+  rect(x + 5, y + 12, 2, 2, "#4a5560"); rect(x + 9, y + 12, 2, 2, "#4a5560");
+  rect(x + 1, y + 7, 3, 5, "#2e5d9e"); rect(x + 2, y + 8, 1, 3, "#e6c34a"); // shield
+  rect(x + 13, y + 3, 1, 8, "#e8eef2"); rect(x + 12, y + 10, 3, 1, "#c9a227"); // sword
+}
+
+function drawArcher(x, y) {
+  rect(x + 5, y + 1, 6, 6, "#2f7d3a"); rect(x + 6, y + 3, 4, 3, "#e0b58a"); // hood, face
+  rect(x + 6, y + 4, 1, 1, "#1a1410"); rect(x + 9, y + 4, 1, 1, "#1a1410");
+  rect(x + 4, y + 7, 8, 5, "#4e8f4a"); rect(x + 4, y + 10, 8, 1, "#5b3a24"); // tunic, belt
+  rect(x + 5, y + 12, 2, 2, "#5b3a24"); rect(x + 9, y + 12, 2, 2, "#5b3a24");
+  rect(x + 12, y + 2, 1, 10, "#8a5a2b"); rect(x + 11, y + 3, 1, 1, "#8a5a2b"); rect(x + 11, y + 10, 1, 1, "#8a5a2b"); // bow
+  rect(x + 14, y + 3, 1, 8, "#e8e0c8");                                       // string
+}
+
+function drawMage(x, y) {
+  rect(x + 6, y + 1, 4, 2, "#6b3fa0"); rect(x + 5, y + 3, 6, 1, "#6b3fa0"); rect(x + 3, y + 4, 8, 1, "#6b3fa0"); // hat
+  rect(x + 5, y + 5, 4, 3, "#e0b58a"); rect(x + 6, y + 6, 1, 1, "#1a1410");  // face
+  rect(x + 4, y + 8, 7, 6, "#8e5ad0"); rect(x + 4, y + 13, 7, 1, "#c9a227"); // robe, trim
+  rect(x + 13, y + 4, 1, 11, "#8a5a2b");                                      // staff
+  rect(x + 12, y + 1, 3, 3, "#e8e0c8");                                       // staff skull
+  rect(x + 12, y + 2, 1, 1, "#5ef2c4"); rect(x + 14, y + 2, 1, 1, "#5ef2c4");
+}
+
+function drawUnit(u) {
+  const x = u.x * TILE, y = u.y * TILE;
+  rect(x + 2, y + 14, 12, 2, u.side === "player" ? "#3a7bd5" : "#b02a1e");   // side base
+  if (u.type === "knight") drawKnight(x, y);
+  else if (u.type === "archer") drawArcher(x, y);
+  else if (u.type === "mage") drawMage(x, y);
+  else if (u.type === "thrall") drawSkeleton(x, y, "#5ef2c4", "#bfe9dd");
+  else drawSkeleton(x, y, "#d03020", "#e8e0c8");
+  if (u.flash > 0) rect(x, y, TILE, TILE, "#ffffff99");
+  rect(x + 1, y, 14, 1, "#00000088");                                          // HP bar
+  rect(x + 1, y, Math.round(14 * u.hp / DEFS[u.type].hp), 1, u.side === "player" ? "#5fd35f" : "#e0503a");
+  if (u.side === "player" && u.done && phase === "player") rect(x, y, TILE, TILE, "#00000066");
+}
+
+function drawBoard() {
+  for (let ty = 0; ty < ROWS; ty++)
+    for (let tx = 0; tx < COLS; tx++) {
+      const x = tx * TILE, y = ty * TILE;
+      if (isRock(tx, ty)) {
+        rect(x, y, TILE, TILE, "#5a4a3a"); rect(x, y, TILE, 4, "#74604a"); rect(x, y + 12, TILE, 4, "#3e3226");
+      } else {
+        rect(x, y, TILE, TILE, (tx + ty) % 2 ? "#a88b5c" : "#9f8355");
+        const n = (tx * 31 + ty * 17) % 7;
+        rect(x + n * 2, y + (n * 5) % 14, 2, 1, "#8a7048");
+      }
+    }
+  for (const p of piles) {   // bone piles with reassembly countdown
+    const x = p.x * TILE, y = p.y * TILE;
+    rect(x + 3, y + 9, 10, 4, "#e8e0c8"); rect(x + 5, y + 6, 6, 3, "#e8e0c8");
+    rect(x + 6, y + 7, 1, 1, "#1a1410"); rect(x + 9, y + 7, 1, 1, "#1a1410");
+    drawText(p.t > 0 ? String(p.t) : "!", x + 8, y + 7, 8, "#ff8a70", "center");
+  }
+}
+
+function drawHighlights() {
+  if (!selected || phase !== "player") return;
+  if (!selected.moved)
+    for (const t of reachable(selected)) rect(t.x * TILE, t.y * TILE, TILE, TILE, "#3a7bd5aa");
+  for (const t of targetsFor(selected)) {
+    const color = t.kind === "hit" ? "#e0301ecc" : t.kind === "raise" ? "#5ef2c4cc" : "#e6c34acc";
+    rect(t.x * TILE, t.y * TILE, TILE, TILE, color);
+  }
+  ctx.strokeStyle = "#ffe066"; ctx.lineWidth = 1;
+  ctx.strokeRect(selected.x * TILE + 0.5, selected.y * TILE + 0.5, TILE - 1, TILE - 1);
+}
+
+function drawPanel() {
+  rect(0, PANEL_Y, VIEW_W, VIEW_H - PANEL_Y, "#1f1a14");
+  rect(0, PANEL_Y, VIEW_W, 1, "#5a4a3a");
+  const u = selected;
+  drawText(u ? DEFS[u.type].name + "  HP " + u.hp + "/" + DEFS[u.type].hp : "Turn " + turn, 6, PANEL_Y + 13, 9);
+  const heroes = units.filter((h) => HEROES.includes(h.type)).length;
+  const foes = units.filter((e) => e.side === "enemy").length;
+  drawText("Heroes " + heroes + " Foes " + foes + " Piles " + piles.length, 6, PANEL_Y + 25, 8, "#c9b98a");
+  // wrap the status message across two lines
+  const lines = [""];
+  for (const w of msg.split(" ")) {
+    if ((lines[lines.length - 1] + " " + w).length > 30) lines.push(w);
+    else lines[lines.length - 1] = (lines[lines.length - 1] + " " + w).trim();
+  }
+  lines.slice(0, 2).forEach((l, i) => drawText(l, 6, PANEL_Y + 37 + i * 9, 8));
+  const on = phase === "player";
+  rect(BUTTON.x, BUTTON.y, BUTTON.w, BUTTON.h, on ? "#7a2e22" : "#3a3028");
+  ctx.strokeStyle = on ? "#e8e0c8" : "#5a4a3a";
+  ctx.strokeRect(BUTTON.x + 0.5, BUTTON.y + 0.5, BUTTON.w - 1, BUTTON.h - 1);
+  drawText("END TURN", BUTTON.x + BUTTON.w / 2, BUTTON.y + 20, 10, on ? "#f0e6c8" : "#7a6a55", "center");
+}
+
+function overlayScreen(title, lines, color) {
+  rect(0, 0, VIEW_W, VIEW_H, "#000000d0");
+  drawText(title, VIEW_W / 2, 50, 18, color, "center");
+  lines.forEach((l, i) => drawText(l, VIEW_W / 2, 80 + i * 13, 9, "#f0e6c8", "center"));
+}
+
+function draw() {
+  rect(0, 0, VIEW_W, VIEW_H, "#14110d");
+  drawBoard();
+  drawHighlights();
+  units.slice().sort((a, b) => a.y - b.y).forEach(drawUnit);
+  drawPanel();
+  if (phase === "title")
+    overlayScreen("MICRO TACTICS", [
+      "Lead the Knight, Archer and Bonewright.",
+      "Tap a hero, tap a blue tile to move,",
+      "then tap a target. Tap yourself to wait.",
+      "",
+      "Fallen skeletons leave BONE PILES that",
+      "rebuild in 2 turns. Smash them (Knight),",
+      "raise them as thralls (Bonewright),",
+      "or block them by standing on them.",
+      "",
+      "Tap to start"], "#e8e0c8");
+  if (phase === "over") overlayScreen("DEFEAT", ["Your heroes have fallen.", "Turn " + turn, "", "Tap to retry"], "#c0392b");
+  if (phase === "win") overlayScreen("VICTORY!", ["Every bone is accounted for.", "Won on turn " + turn, "", "Tap to play again"], "#e6c34a");
+}
+
+// ---------- Main loop ----------
+let last = performance.now();
+function frame(now) {
+  update(Math.min(0.25, (now - last) / 1000));
+  last = now;
+  draw();
+  requestAnimationFrame(frame);
+}
+
+// Test contract: smoke tests read live state through these getters.
+// "player" is the player side (heroes, selection, legacy cursor); "wave" is the turn number.
+startGame();
+phase = "title";
+Object.defineProperty(window, "__debug", {
+  value: {
+    get player() { return { units: units.filter((u) => HEROES.includes(u.type)), selected: selected && selected.type, cursor: cursor }; },
+    get enemies() { return units.filter((u) => u.side === "enemy"); },
+    get wave() { return turn; }
+  }
+});
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>

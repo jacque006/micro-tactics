@@ -1,0 +1,9 @@
+# Review-gated zones: agent may propose, owner must approve
+/tests/                  @jacque006
+/.github/workflows/      @jacque006
+/tools/                  @jacque006
+/CLAUDE.md               @jacque006
+/BOOTSTRAP.md            @jacque006
+/package.json            @jacque006
+/playwright.config.js    @jacque006
+/CODEOWNERS              @jacque006

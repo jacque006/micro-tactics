@@ -1,45 +1,45 @@
 # PR media capture
 
-`tools/capture.js` plays the game in headless Chromium and writes PR media:
-at most 3 PNG screenshots and one GIF of 20 seconds or less.
+Every open PR gets up to 3 PNG screenshots and one GIF of 20 seconds or less in its preview comment. `.github/workflows/pages.yml` makes them with main's `tools/capture.js`, following the PR's `tests/game/capture.json`.
 
-```
-npx playwright install chromium   # once
-node tools/capture.js --out media --scenario tour
-```
+The scenario is JSON, not code, so capturing a PR never runs that PR's code outside the browser sandbox.
 
-The script serves `index.html` itself, so no dev server is needed and it adds no dependencies.
-Output is written to `media/` (git-ignored).
+## Writing a scenario
 
-## Capturing a specific feature
+Edit `tests/game/capture.json` to show the feature your PR adds:
 
-Add a function to `SCENARIOS` in `tools/capture.js`. It receives `tap(tx, ty)` (tile coordinates),
-`endTurn()`, `wait(ms)`, `debug()` (reads `window.__debug`), `shot(name)` and `rec.start()/rec.stop()`.
-Use `debug()` to check the game reached the moment worth showing before calling `shot()`.
-`shot()` throws on a 4th screenshot, and the GIF stops recording at 20 seconds.
-
-## Publishing as workflow artifacts (needs a workflow, owner to add)
-
-Agents cannot edit `.github/workflows/`. This job can be added to `ci.yml` (or a new workflow) by the repo owner:
-
-```yaml
-  pr-media:
-    if: github.event_name == 'pull_request'
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          persist-credentials: false
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 20
-      - run: npm ci
-      - run: npx playwright install --with-deps chromium
-      - run: node tools/capture.js --out media
-      - uses: actions/upload-artifact@v4
-        with:
-          name: pr-media
-          path: media/
+```json
+{
+  "steps": [
+    { "shot": "title" },
+    { "record": "start" },
+    { "tap": [0, 0] },
+    { "tap": [1, 5] },
+    { "waitFor": { "path": "player.selected", "equals": "knight" } },
+    { "shot": "knight-selected" },
+    { "endTurn": true },
+    { "wait": 3000 },
+    { "record": "stop" }
+  ]
+}
 ```
 
-Artifacts do not render inline in a PR description. Link the run's artifact list from the description.
+| Step | What it does |
+|---|---|
+| `{ "tap": [x, y] }` | Taps the centre of tile (x, y). The canvas is 16 × 15 tiles; rows 12-14 are the info panel. |
+| `{ "endTurn": true }` | Taps the END TURN button. |
+| `{ "wait": ms }` | Pauses for 0 to 10000 ms. |
+| `{ "waitFor": { "path": "...", "equals": value, "timeout": ms } }` | Waits until `window.__debug.<path>` equals `value` (a string, number, boolean or null). The timeout defaults to 5000 ms. |
+| `{ "shot": "name" }` | Saves `name.png`. At most 3 per scenario, with unique names made of lowercase letters, digits and dashes. |
+| `{ "record": "start" }` / `{ "record": "stop" }` | Records everything in between as the GIF. Recording stops by itself at 20 seconds. |
+
+Limits: 200 steps at most, and all waits together under 60 seconds. `npm test` checks that the scenario is valid.
+
+## Running it locally
+
+```sh
+python3 tools/build.py
+node tools/capture.js --out media    # defaults: --page dist/index.html --scenario tests/game/capture.json
+```
+
+The output goes to `media/`, which git ignores: `<shot>.png`, `capture.gif` and `manifest.json`. If Chromium isn't installed, run `npx playwright install chromium`, or set `PW_CHROMIUM_EXECUTABLE` to an installed Chrome.

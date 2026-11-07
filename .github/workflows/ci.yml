@@ -46,3 +46,21 @@ jobs:
         with:
           python-version: "3.12"
       - run: python tools/pin_hash.py --verify index.html
+
+  pr-media:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - run: node tools/capture.js --out media
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pr-media
+          path: media/

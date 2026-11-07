@@ -1,7 +1,6 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src 'self' data:; style-src 'unsafe-inline'; script-src 'sha256-Pa8GNiW2StAzartMibJof+DmD8kqIYoEJNBk41iaa2s='">
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Micro Tactics</title>
@@ -390,17 +389,16 @@ function frame(now) {
   requestAnimationFrame(frame);
 }
 
-// Test contract: smoke tests read live state through these getters.
+// Test contract: smoke tests and tools/capture.js read live state through these getters.
 // "player" is the player side (heroes, selection, legacy cursor); "wave" is the turn number.
+// A top-level var becomes a property of the game frame's window.
 startGame();
 phase = "title";
-Object.defineProperty(window, "__debug", {
-  value: {
-    get player() { return { units: units.filter((u) => HEROES.includes(u.type)), selected: selected && selected.type, cursor: cursor }; },
-    get enemies() { return units.filter((u) => u.side === "enemy"); },
-    get wave() { return turn; }
-  }
-});
+var __debug = {
+  get player() { return { units: units.filter((u) => HEROES.includes(u.type)), selected: selected && selected.type, cursor: cursor }; },
+  get enemies() { return units.filter((u) => u.side === "enemy"); },
+  get wave() { return turn; }
+};
 requestAnimationFrame(frame);
 </script>
 </body>

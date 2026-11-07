@@ -21,7 +21,29 @@
   }
 })();
 
-// 2. Save: the game's only persistent storage, backed by the page around this frame.
+// 2. Remove the clipboard. A tap is a user gesture, and some browsers (WebKit for the async API,
+//    Chrome for execCommand) let a sandboxed frame write the clipboard on one. A game could then
+//    plant a command for the player to paste. Copy and cut handlers are cut off for the same reason.
+(function () {
+  var names = Object.getOwnPropertyNames(window);
+  for (var i = 0; i < names.length; i++) {
+    if (/^Clipboard/.test(names[i])) {
+      try { delete window[names[i]]; } catch (e) {}
+    }
+  }
+  try { delete Navigator.prototype.clipboard; } catch (e) {}
+  if (typeof navigator.clipboard !== "undefined") {
+    Object.defineProperty(navigator, "clipboard", { value: undefined, writable: false, configurable: false });
+  }
+  Object.defineProperty(Document.prototype, "execCommand", {
+    value: function () { return false; }, writable: false, configurable: false
+  });
+  function block(ev) { ev.preventDefault(); ev.stopImmediatePropagation(); }
+  window.addEventListener("copy", block, true);
+  window.addEventListener("cut", block, true);
+})();
+
+// 3. Save: the game's only persistent storage, backed by the page around this frame.
 //    Keys: letters, digits, "_", "." or "-", at most 64 characters. Values: strings
 //    (use JSON.stringify), at most 64 KB each and 256 KB in total. Read after `await Save.ready`.
 //    Save.persistent is false where the browser gives the page no storage, so progress is

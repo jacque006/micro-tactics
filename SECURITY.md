@@ -55,7 +55,7 @@ All of this lives inside the one file, so it holds the same way hosted on Pages,
 
 - **Navigation can leak a hostname.** If the game navigates its frame, CSP blocks it, but Chrome may first open a connection to the target host. The path and query string never leave. A hostname like `<data>.attacker.example` can, through DNS. Only the lint (no `location`, no `href`, no element other than `<canvas>`) and review stand in the way.
 - **Local copies share storage.** In Chrome, every HTML file opened from disk shares one storage area, so other local files can read or change this game's saves. That's why saves are treated as untrusted input. Never store anything sensitive in them.
-- **Firefox and WebKit** run the security suite in CI, but don't block merges until they're confirmed green.
+- **Firefox and WebKit** pass the security suite in CI, but don't block merges yet. Make them required once they've been stable for a while (see the comment in `ci.yml`).
 - **Out of reach for any rule here:** a browser bug that escapes the sandbox, a game that burns CPU or draws misleading text on its canvas, a takeover of the owner's GitHub account, or the owner approving a bad diff.
 
 ## Settings the owner must apply

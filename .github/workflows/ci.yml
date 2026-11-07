@@ -66,8 +66,8 @@ jobs:
       - run: npx playwright install --with-deps chromium
       - run: npx playwright test --project=chromium
 
-  # Firefox and WebKit report but don't block yet: the sandbox suite has only been verified in
-  # Chromium. Make these required once they pass.
+  # Firefox and WebKit pass but don't block yet, until they've been stable for a while. To make
+  # them required, drop continue-on-error and add both checks to the main ruleset.
   test-other-browsers:
     name: test (${{ matrix.browser }}, not required)
     runs-on: ubuntu-latest

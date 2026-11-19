@@ -15,7 +15,7 @@ net
     let buffer = "";
     let logged = false;
     const log = (line) => {
-      if (logged) return;
+      if (logged) { return; }
       logged = true;
       fs.appendFileSync(LOG, line + "\n");
     };

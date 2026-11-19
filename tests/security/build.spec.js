@@ -99,7 +99,9 @@ const rejected = {
   "a CSS import": (g) => g.replace("</style>", "@import url(x.css);</style>"),
   "a CSS remote url": (g) => g.replace("</style>", "body { background: url(https://x.example/a.png) }</style>"),
   "a network call": (g) => g.replace('"use strict";', '"use strict"; fetch("/x");'),
-  "a URL in a string": (g) => g.replace('"use strict";', '"use strict"; const u = "https://x.example";')
+  "a URL in a string": (g) => g.replace('"use strict";', '"use strict"; const u = "https://x.example";'),
+  "a branch without braces": (g) => g.replace('if (phase !== "player") { return; }', 'if (phase !== "player") return;'),
+  "no strict mode": (g) => g.replace('"use strict";', "")
 };
 
 for (const [name, mutate] of Object.entries(rejected)) {

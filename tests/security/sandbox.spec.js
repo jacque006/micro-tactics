@@ -28,11 +28,9 @@ async function canaryResults(frame) {
 }
 
 function proxyLines() {
-  try {
-    return fs.readFileSync(PROXY_LOG, "utf8").split("\n").filter(Boolean);
-  } catch (e) {
-    return [];
-  }
+  // The proxy creates this file when it starts. If it's missing, fail: every leak check below
+  // would otherwise pass without having looked at anything.
+  return fs.readFileSync(PROXY_LOG, "utf8").split("\n").filter(Boolean);
 }
 
 function expectNothingLeaked() {
@@ -66,22 +64,45 @@ for (const placement of placements) {
     expect(escaped, "probes that got out").toEqual([]);
 
     const topUrl = page.url();
-    await frame.evaluate(() => window.__canary.navigate()).catch(() => {});
+    // navigate() replaces the frame's document, which can end this call mid-flight. Only that
+    // error is expected.
+    await frame.evaluate(() => window.__canary.navigate()).catch((e) => {
+      if (!/destroyed|detached|navigat/i.test(e.message)) {
+        throw e;
+      }
+    });
     await page.waitForTimeout(1500);
     expect(page.url(), "the page did not navigate").toBe(topUrl);
     expect(popups, "no windows opened").toEqual([]);
-    for (const f of page.frames()) expect(f.url(), "no frame reached another site").not.toMatch(/leak\.example/);
+    for (const f of page.frames()) { expect(f.url(), "no frame reached another site").not.toMatch(/leak\.example/); }
     expectNothingLeaked();
   });
 }
+
+test("every outside host goes to the logging proxy, never to DNS", async ({ page }) => {
+  // The leak checks are only meaningful if a request that got out would reach the proxy. A
+  // browser behind an HTTP proxy hands it the host name instead of resolving it, so no DNS
+  // server or hosts-file entry can redirect the test hosts. This proves that's the path in use.
+  const host = `control-${test.info().project.name}.proxy-check.example`;
+  let navigationError = "";
+  await page.goto(`http://${host}/`).catch((e) => {
+    navigationError = e.message;
+  });
+  expect(proxyLines().some((l) => l.includes(host)), `the proxy saw ${host}. ${navigationError}`).toBe(true);
+});
 
 test("saves persist, stay in their namespace and respect the limits", async ({ page }) => {
   await page.goto("/canary/index.html");
   let frame = await gameFrame(page);
   const first = await frame.evaluate(() => window.__canary.save("best", "42"));
   expect(first).toMatchObject({ value: "42", persistent: true });
-  await frame.evaluate(() => window.__canary.save("big", "x".repeat(70000)));   // over 64 KB: dropped
-  await frame.evaluate(() => window.__canary.save("__proto__", "x"));            // invalid key: dropped
+
+  // Save refuses bad input loudly, so a game author sees the mistake.
+  await expect(frame.evaluate(() => window.__canary.save("big", "x".repeat(70000)))).rejects.toThrow(/at most/);
+  await expect(frame.evaluate(() => window.__canary.save("__proto__", "x"))).rejects.toThrow(/keys are/);
+  // And the shell refuses the same writes when a game skips Save and posts to it directly.
+  await frame.evaluate(() => window.__canary.rawSet("big", "x".repeat(70000)));
+  await frame.evaluate(() => window.__canary.rawSet("__proto__", "x"));
   await page.waitForTimeout(200);
   expect(await page.evaluate(() => Object.keys(localStorage).sort())).toEqual(["mt:canary:best"]);
 

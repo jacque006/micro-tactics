@@ -1,5 +1,6 @@
 // Owner only. The game lint (tools/lint_game.mjs) is a tripwire: these are the ways around it
-// we know of, and code it must keep accepting.
+// we know of, and code it must keep accepting. Its style rules (braces, explicit semicolons,
+// no line continuing the one above, "use strict") apply to every JavaScript file in the repo.
 const { test, expect } = require("@playwright/test");
 const fs = require("fs");
 const path = require("path");
@@ -8,9 +9,9 @@ const ROOT = path.join(__dirname, "..", "..");
 
 test.skip(({ browserName }) => browserName !== "chromium", "lint checks need no browser; run them once");
 
-let lint;
+let lint, lintStyle, scriptOf;
 test.beforeAll(async () => {
-  ({ lint } = await import(path.join(ROOT, "tools", "lint_game.mjs")));
+  ({ lint, lintStyle, scriptOf } = await import(path.join(ROOT, "tools", "lint_game.mjs")));
 });
 
 const mustFail = {
@@ -71,3 +72,69 @@ for (const [name, code] of Object.entries(mustPass)) {
     expect(lint(source)).toEqual([]);
   });
 }
+
+const styleMustFail = {
+  "an if without braces": "if (a) b();",
+  "an else without braces": "if (a) { b(); } else c();",
+  "a for loop without braces": "for (;;) x();",
+  "a while loop without braces": "while (a) b();",
+  "a do-while without braces": "do x(); while (a);",
+  "a missing semicolon": "let a = 1\nlet b = 2;",
+  "a return split from its value": "function f() { return\n1; }",
+  "a line starting with ( that continues the line above": "const a = b\n(c || d).e();",
+  "a line starting with [ that continues the line above": "const a = b\n[1, 2].forEach(f);",
+  "a template that continues the line above": "const t = tag\n`x`;"
+};
+
+const styleMustPass = {
+  "braced branches and else-if chains": "if (a) { b(); } else if (c) { d(); } else { e(); }",
+  "a method chain across lines": "a\n  .b()\n  .c();",
+  "call arguments across lines": "f(\n  x\n);",
+  "a new statement after a semicolon": "const a = b; // fine\n(c || d).e();"
+};
+
+for (const [name, code] of Object.entries(styleMustFail)) {
+  test(`the style rules reject ${name}`, () => {
+    expect(lintStyle(code), code).not.toEqual([]);
+  });
+}
+
+for (const [name, code] of Object.entries(styleMustPass)) {
+  test(`the style rules accept ${name}`, () => {
+    expect(lintStyle(code)).toEqual([]);
+  });
+}
+
+test("a script without \"use strict\" fails where strict mode is required", () => {
+  expect(lintStyle("var a = 1;", { requireStrict: true })).not.toEqual([]);
+  expect(lintStyle("\"use strict\";\nvar a = 1;", { requireStrict: true })).toEqual([]);
+});
+
+function jsFiles(dir) {
+  return fs.readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
+    const full = path.join(dir, entry.name);
+    if (entry.isDirectory()) {
+      return jsFiles(full);
+    }
+    // HTML counts when it has a real inline script; shell/shell.html's is only the {{SHELL_JS}}
+    // slot, filled from shell/shell.js, which is checked as a file of its own.
+    const isPage = entry.name.endsWith(".html") && /<script>(?!\{\{)/.test(fs.readFileSync(full, "utf8"));
+    return /\.(js|mjs)$/.test(entry.name) || isPage ? [full] : [];
+  });
+}
+
+test("every JavaScript file in the repo follows the style rules", () => {
+  const files = ["game.html", "playwright.config.js", ...["shell", "tools", "tests"].flatMap((d) => jsFiles(path.join(ROOT, d)))]
+    .map((f) => path.resolve(ROOT, f));
+  expect(files.length).toBeGreaterThan(10);
+  const problems = files.flatMap((f) =>
+    lintStyle(scriptOf(f), { sourceType: f.endsWith(".mjs") ? "module" : "script" }).map((e) => `${path.relative(ROOT, f)}:${e}`)
+  );
+  expect(problems).toEqual([]);
+});
+
+test("the game and the shell's scripts run in strict mode", () => {
+  for (const f of ["game.html", "shell/shell.js", "shell/preamble.js"]) {
+    expect(lintStyle(scriptOf(path.join(ROOT, f)), { requireStrict: true }), f).toEqual([]);
+  }
+});

@@ -86,12 +86,16 @@ def capture(page, scenario, out):
     )
     if result.returncode != 0:
         return None, clip((result.stderr or result.stdout).strip())
+    if result.stderr.strip():
+        # Warnings from a capture that still succeeded (such as failed GIF frames): keep them in
+        # the workflow log for triage.
+        print(f"capture warnings for {page}:\n{result.stderr.strip()}")
     try:
         manifest = json.loads((out / "manifest.json").read_text())
         shots = [s for s in manifest.get("shots", []) if isinstance(s, str) and SHOT_RE.match(s)][:3]
         return {"shots": shots, "gif": manifest.get("gif") is True}, None
-    except (OSError, ValueError):
-        return None, "capture wrote no manifest"
+    except (OSError, ValueError) as e:
+        return None, f"capture finished but its manifest could not be read: {e}"
 
 
 def build_site(work, site, manifest_path):

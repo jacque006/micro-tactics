@@ -44,14 +44,45 @@
 })();
 
 // 3. Save: the game's only persistent storage, backed by the page around this frame.
-//    Keys: letters, digits, "_", "." or "-", at most 64 characters. Values: strings
-//    (use JSON.stringify), at most 64 KB each and 256 KB in total. Read after `await Save.ready`.
-//    Save.persistent is false where the browser gives the page no storage, so progress is
-//    lost on reload.
+//    Keys: 1-64 letters, digits, "_", "." or "-", starting with a letter or digit. Values:
+//    strings (use JSON.stringify), at most 65536 characters each; at most 64 keys and 262144
+//    characters in total. Save.set throws if a write breaks these limits. The shell enforces the
+//    same limits again (shell/shell.js), so keep the two in step.
+//    Read after `await Save.ready`. Save.persistent is false where the browser gives the page
+//    no storage, so progress is lost on reload.
 var Save = (function () {
+  var KEY_RE = /^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$/;
+  var MAX_KEYS = 64;
+  var MAX_VALUE = 65536;
+  var MAX_TOTAL = 262144;
   var data = Object.create(null);
   var persistent = false;
   var inShell = window.parent !== window;
+
+  function checkKey(key) {
+    if (!KEY_RE.test(key)) {
+      throw new TypeError("Save: keys are 1-64 letters, digits, '_', '.' or '-', starting with a letter or digit (got " + JSON.stringify(key.slice(0, 80)) + ")");
+    }
+  }
+
+  function checkFits(key, value) {
+    if (value.length > MAX_VALUE) {
+      throw new RangeError("Save: a value can be at most " + MAX_VALUE + " characters (\"" + key + "\" is " + value.length + ")");
+    }
+    var keys = Object.keys(data);
+    var total = key.length + value.length;
+    for (var i = 0; i < keys.length; i++) {
+      if (keys[i] !== key) {
+        total += keys[i].length + data[keys[i]].length;
+      }
+    }
+    if (!(key in data) && keys.length >= MAX_KEYS) {
+      throw new RangeError("Save: at most " + MAX_KEYS + " keys");
+    }
+    if (total > MAX_TOTAL) {
+      throw new RangeError("Save: saves can be at most " + MAX_TOTAL + " characters in total");
+    }
+  }
 
   var ready = new Promise(function (resolve) {
     if (!inShell) {
@@ -83,11 +114,14 @@ var Save = (function () {
     set: function (key, value) {
       key = String(key);
       value = String(value);
+      checkKey(key);
+      checkFits(key, value);
       data[key] = value;
       send({ mt: "set", key: key, value: value });
     },
     remove: function (key) {
       key = String(key);
+      checkKey(key);
       delete data[key];
       send({ mt: "remove", key: key });
     },

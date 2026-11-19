@@ -63,7 +63,9 @@ DOWNLOAD_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,99}\.html$")
 
 
 class BuildError(Exception):
-    pass
+    """Something in game.html or the shell can't be built. Raised wherever a check fails;
+    main() prints it to stderr and exits with status 1, and tools/pages.py reports it on the PR.
+    """
 
 
 class GameChecker(html.parser.HTMLParser):

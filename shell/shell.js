@@ -8,6 +8,11 @@
   var MAX_KEYS = 64;
   var MAX_VALUE = 65536;   // characters per value
   var MAX_TOTAL = 262144;  // characters across all of this game's values
+  // These limits match Save's in preamble.js; keep the two in step.
+
+  function warn(message) {
+    console.warn("Micro Tactics saves: " + message);
+  }
 
   // localStorage throws when this page is itself sandboxed or storage is disabled.
   // Saves then last only as long as the page.
@@ -18,6 +23,7 @@
     store.removeItem(prefix + "probe");
   } catch (e) {
     store = null;
+    warn("no storage on this page (" + e.name + "), so saves last until it closes.");
   }
   var memory = Object.create(null);
 
@@ -47,7 +53,10 @@
     var data = readAll();
     if (value === null) { delete data[key]; }
     else { data[key] = value; }
-    if (!fits(data)) { return; }   // over the quota: drop the write
+    if (!fits(data)) {
+      warn("dropped a write to \"" + key + "\": over " + MAX_KEYS + " keys or " + MAX_TOTAL + " characters in total.");
+      return;
+    }
     if (!store) {
       if (value === null) { delete memory[key]; }
       else { memory[key] = value; }
@@ -57,7 +66,8 @@
       if (value === null) { store.removeItem(prefix + key); }
       else { store.setItem(prefix + key, value); }
     } catch (e) {
-      // Browser quota exceeded; the game keeps its in-memory copy.
+      // Usually the browser's storage quota. The game keeps its in-memory copy for this session.
+      warn("the browser refused to store \"" + key + "\" (" + e.name + ").");
     }
   }
 
@@ -76,6 +86,9 @@
       write(m.key, m.value);
     } else if (m.mt === "remove" && validKey) {
       write(m.key, null);
+    } else {
+      // Save checks all of this first, so this means the game skipped Save.
+      warn("refused a malformed " + JSON.stringify(String(m.mt).slice(0, 20)) + " message from the game.");
     }
   });
 })();

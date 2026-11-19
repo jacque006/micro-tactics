@@ -199,6 +199,8 @@ async function capture({ page: pageFile, scenario, outDir }) {
     const shots = [];
     const frames = [];
     let timer = null;
+    let closing = false;              // set once capture is done; grabs failing after that are expected
+    const grabErrors = new Map();     // error message -> how many grabs failed with it
     const grab = async () => {
       // base64 is far faster to pass out of the page than an array of numbers.
       const b64 = await canvas.evaluate((c, sz) => {
@@ -248,7 +250,21 @@ async function capture({ page: pageFile, scenario, outDir }) {
           timer = setInterval(async () => {
             if (busy || frames.length >= MAX_GIF_SECONDS * GIF_FPS) { return; }
             busy = true;
-            try { await grab(); } catch (e) { /* page closing */ } finally { busy = false; }
+            try {
+              await grab();
+            } catch (e) {
+              // A grab still running when capture finishes fails as the page closes; that one is
+              // expected. Anything else is logged once per distinct message and counted.
+              if (!closing) {
+                const message = String((e && e.message) || e);
+                if (!grabErrors.has(message)) {
+                  console.warn(`GIF frame grab failed: ${message}`);
+                }
+                grabErrors.set(message, (grabErrors.get(message) || 0) + 1);
+              }
+            } finally {
+              busy = false;
+            }
           }, 1000 / GIF_FPS);
         } else if (v === "stop") {
           clearInterval(timer);
@@ -259,10 +275,15 @@ async function capture({ page: pageFile, scenario, outDir }) {
     clearInterval(timer);
     if (pageErrors.length) { throw new Error("Page errors during capture:\n" + pageErrors.join("\n")); }
     if (frames.length > 0) { fs.writeFileSync(path.join(outDir, "capture.gif"), encodeGif(frames, size.w, size.h, 1000 / GIF_FPS)); }
-    const manifest = { shots, gif: frames.length > 0, frames: frames.length };
+    const failedGrabs = [...grabErrors.values()].reduce((a, b) => a + b, 0);
+    if (failedGrabs > 0) {
+      console.warn(`${failedGrabs} GIF frame grab(s) failed; the GIF is missing those frames.`);
+    }
+    const manifest = { shots, gif: frames.length > 0, frames: frames.length, failedGrabs };
     fs.writeFileSync(path.join(outDir, "manifest.json"), JSON.stringify(manifest));
     return manifest;
   } finally {
+    closing = true;
     await browser.close();
     server.close();
   }

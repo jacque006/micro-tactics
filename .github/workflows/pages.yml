@@ -1,0 +1,98 @@
+name: pages
+# Publishes the site: the released game at the root, a playable preview of every open PR whose
+# branch is in this repository, and screenshots for each. Always main's code: workflow_run and
+# schedule run the default branch's copy of this file, the checkout pins main, and the
+# github-pages environment only accepts deployments from main.
+#
+# From a PR it takes only game.html and tests/game/capture.json, fetched as data through the
+# API (tools/pages.py). It never runs a PR's tools, tests or install scripts. The PR's game runs
+# only inside the sandboxed frame, in a browser with no network (tools/capture.js).
+#
+# Jobs and their permissions:
+#   assemble  contents: read, pull-requests: read   build site + media (token only for fetching)
+#   deploy    pages: write, id-token: write         publish the site artifact, nothing else
+#   comment   pull-requests: write                  post or update one preview comment per PR
+
+on:
+  workflow_run:   # zizmor: ignore[dangerous-triggers] uses no artifacts or code from the triggering run
+    workflows: [ci]
+    types: [completed]
+  schedule:
+    - cron: "41 5 * * *"   # also drops previews of closed PRs
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  assemble:
+    name: assemble site
+    # workflow_run also fires for forks' CI runs; those never get previews, so skip the rebuild.
+    if: github.event_name != 'workflow_run' || github.event.workflow_run.head_repository.full_name == github.repository
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read         # check out main; read PR files through the API
+      pull-requests: read    # list open PRs
+    outputs:
+      manifest: ${{ steps.build.outputs.manifest }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: main
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+      - run: npm ci --ignore-scripts
+      - run: npx playwright install --with-deps chromium
+      - name: Fetch open PRs' game.html and capture.json
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: python3 tools/pages.py fetch --repo "$REPO" --work work
+      - name: Build the site and capture media (no token in this step)
+        id: build
+        run: |
+          python3 tools/pages.py build --work work --site site --manifest manifest.json
+          echo "manifest=$(cat manifest.json)" >> "$GITHUB_OUTPUT"
+      - uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
+        with:
+          path: site
+
+  deploy:
+    name: deploy
+    needs: assemble
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write           # publish the site artifact
+      id-token: write        # required by deploy-pages
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    outputs:
+      page_url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5.0.1
+
+  comment:
+    name: comment on PRs
+    needs: [assemble, deploy]
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write   # post or update the preview comment
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: main
+          persist-credentials: false
+      - name: Post or update each PR's preview comment
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          MANIFEST: ${{ needs.assemble.outputs.manifest }}
+          PAGE_URL: ${{ needs.deploy.outputs.page_url }}
+        run: python3 tools/pages.py comment --repo "$REPO"

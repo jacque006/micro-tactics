@@ -1,0 +1,20 @@
+{
+  "_comment": "What tools/capture.js shows in this PR's preview comment: up to 3 screenshots and one GIF of 20 s or less. Rewrite the steps to show the feature your PR adds. Format: tools/CAPTURE.md.",
+  "steps": [
+    { "shot": "title" },
+    { "record": "start" },
+    { "tap": [0, 0] },
+    { "wait": 400 },
+    { "tap": [1, 5] },
+    { "waitFor": { "path": "player.selected", "equals": "knight" } },
+    { "wait": 300 },
+    { "shot": "knight-selected" },
+    { "tap": [4, 5] },
+    { "wait": 600 },
+    { "tap": [4, 5] },
+    { "endTurn": true },
+    { "wait": 3000 },
+    { "shot": "after-enemy-turn" },
+    { "record": "stop" }
+  ]
+}

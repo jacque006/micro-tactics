@@ -1,0 +1,40 @@
+{
+  "_comment": "Browser APIs game.html may use. tools/lint_game.mjs enforces it. Adding an API is an owner-reviewed change: say in the PR why the game needs it.",
+  "globals": [
+    "undefined", "NaN", "Infinity",
+    "Object", "Array", "String", "Number", "Boolean", "Symbol", "BigInt", "Math", "JSON", "Date",
+    "Map", "Set", "WeakMap", "WeakSet", "Promise",
+    "Error", "TypeError", "RangeError",
+    "ArrayBuffer", "DataView", "Uint8Array", "Uint8ClampedArray", "Int8Array", "Uint16Array",
+    "Int16Array", "Uint32Array", "Int32Array", "Float32Array", "Float64Array",
+    "isNaN", "isFinite", "parseInt", "parseFloat",
+    "console", "performance",
+    "requestAnimationFrame", "cancelAnimationFrame",
+    "setTimeout", "clearTimeout", "setInterval", "clearInterval",
+    "addEventListener", "removeEventListener",
+    "innerWidth", "innerHeight", "devicePixelRatio",
+    "document",
+    "Image", "ImageData", "OffscreenCanvas", "createImageBitmap", "Path2D",
+    "AudioContext", "OfflineAudioContext",
+    "Save"
+  ],
+  "document": [
+    "getElementById", "querySelector", "createElement", "body",
+    "addEventListener", "removeEventListener", "hidden", "visibilityState"
+  ],
+  "createElement": ["canvas"],
+  "bannedProperties": [
+    "innerHTML", "outerHTML", "insertAdjacentHTML", "setHTMLUnsafe", "srcdoc", "href", "action",
+    "formAction", "location", "cookie", "domain", "write", "writeln", "open", "opener",
+    "window", "globalThis", "ownerDocument", "defaultView", "view",
+    "contentWindow", "contentDocument", "constructor", "__proto__", "__defineGetter__",
+    "__defineSetter__", "__lookupGetter__", "__lookupSetter__", "localStorage", "sessionStorage",
+    "indexedDB", "caches", "serviceWorker", "sendBeacon", "fetch", "clipboard", "importScripts",
+    "setAttribute", "setAttributeNS", "parseFromString", "createContextualFragment",
+    "execCommand", "postMessage", "createElementNS"
+  ],
+  "dataUriTypes": [
+    "image/png", "image/gif", "image/webp", "image/jpeg", "image/svg+xml",
+    "audio/wav", "audio/ogg", "audio/mpeg", "audio/webm"
+  ]
+}

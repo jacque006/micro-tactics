@@ -1,9 +1,18 @@
-# Review-gated zones: agent may propose, owner must approve
-/tests/                  @jacque006
-/.github/workflows/      @jacque006
-/tools/                  @jacque006
-/CLAUDE.md               @jacque006
-/BOOTSTRAP.md            @jacque006
-/package.json            @jacque006
-/playwright.config.js    @jacque006
-/CODEOWNERS              @jacque006
+# The owner reviews every change.
+*                       @jacque006
+
+# The agent (Claude, on claude/ branches) may change only game.html, tests/game/ and README.md.
+# CI's "agent scope" check fails its PR if it touches anything else. Everything below is
+# owner-only: humans change it in a PR of its own, with no game changes mixed in.
+/shell/                 @jacque006
+/tools/                 @jacque006
+/tests/security/        @jacque006
+/tests/prepare.py       @jacque006
+/.github/               @jacque006
+/CLAUDE.md              @jacque006
+/SECURITY.md            @jacque006
+/CODEOWNERS             @jacque006
+/package.json           @jacque006
+/package-lock.json      @jacque006
+/.npmrc                 @jacque006
+/playwright.config.js   @jacque006

@@ -35,9 +35,9 @@ const COLS = 16, ROWS = 15; // tiles across the 256x240 canvas, info panel inclu
 //   { "record": "start" | "stop" } GIF recording (stops by itself at 20 s)
 function validateScenario(scenario) {
   const errors = [];
-  if (!scenario || typeof scenario !== "object" || !Array.isArray(scenario.steps)) return ["scenario must be { \"steps\": [...] }"];
+  if (!scenario || typeof scenario !== "object" || !Array.isArray(scenario.steps)) { return ["scenario must be { \"steps\": [...] }"]; }
   const steps = scenario.steps;
-  if (steps.length < 1 || steps.length > MAX_STEPS) errors.push(`between 1 and ${MAX_STEPS} steps`);
+  if (steps.length < 1 || steps.length > MAX_STEPS) { errors.push(`between 1 and ${MAX_STEPS} steps`); }
   let shots = new Set(), waited = 0;
   steps.forEach((step, i) => {
     const at = `step ${i + 1}`;
@@ -46,31 +46,31 @@ function validateScenario(scenario) {
     const [key] = keys, v = step[key];
     const isInt = (n, lo, hi) => Number.isInteger(n) && n >= lo && n <= hi;
     if (key === "tap") {
-      if (!Array.isArray(v) || v.length !== 2 || !isInt(v[0], 0, COLS - 1) || !isInt(v[1], 0, ROWS - 1)) errors.push(`${at}: tap needs [x 0-${COLS - 1}, y 0-${ROWS - 1}]`);
+      if (!Array.isArray(v) || v.length !== 2 || !isInt(v[0], 0, COLS - 1) || !isInt(v[1], 0, ROWS - 1)) { errors.push(`${at}: tap needs [x 0-${COLS - 1}, y 0-${ROWS - 1}]`); }
     } else if (key === "endTurn") {
-      if (v !== true) errors.push(`${at}: endTurn must be true`);
+      if (v !== true) { errors.push(`${at}: endTurn must be true`); }
     } else if (key === "wait") {
-      if (!isInt(v, 0, 10000)) errors.push(`${at}: wait must be 0-10000 ms`);
-      else waited += v;
+      if (!isInt(v, 0, 10000)) { errors.push(`${at}: wait must be 0-10000 ms`); }
+      else { waited += v; }
     } else if (key === "waitFor") {
       const equalsOk = v && (v.equals === null || ["string", "number", "boolean"].includes(typeof v.equals));
       const ok = v && typeof v === "object" && typeof v.path === "string" && v.path.length <= 100 && DEBUG_PATH_RE.test(v.path)
         && Object.keys(v).every((k) => ["path", "equals", "timeout"].includes(k)) && equalsOk;
-      if (!ok || (typeof v.equals === "string" && v.equals.length > 100)) errors.push(`${at}: waitFor needs { path, equals[, timeout] }`);
-      else if (v.timeout !== undefined && !isInt(v.timeout, 1, 10000)) errors.push(`${at}: waitFor timeout must be 1-10000 ms`);
-      else waited += v.timeout || 5000;
+      if (!ok || (typeof v.equals === "string" && v.equals.length > 100)) { errors.push(`${at}: waitFor needs { path, equals[, timeout] }`); }
+      else if (v.timeout !== undefined && !isInt(v.timeout, 1, 10000)) { errors.push(`${at}: waitFor timeout must be 1-10000 ms`); }
+      else { waited += v.timeout || 5000; }
     } else if (key === "shot") {
-      if (typeof v !== "string" || !SHOT_NAME_RE.test(v)) errors.push(`${at}: shot names are lowercase letters, digits and dashes`);
-      else if (shots.has(v)) errors.push(`${at}: duplicate shot "${v}"`);
-      else shots.add(v);
+      if (typeof v !== "string" || !SHOT_NAME_RE.test(v)) { errors.push(`${at}: shot names are lowercase letters, digits and dashes`); }
+      else if (shots.has(v)) { errors.push(`${at}: duplicate shot "${v}"`); }
+      else { shots.add(v); }
     } else if (key === "record") {
-      if (v !== "start" && v !== "stop") errors.push(`${at}: record must be "start" or "stop"`);
+      if (v !== "start" && v !== "stop") { errors.push(`${at}: record must be "start" or "stop"`); }
     } else {
       errors.push(`${at}: unknown step "${key}"`);
     }
   });
-  if (shots.size > MAX_SHOTS) errors.push(`at most ${MAX_SHOTS} shots`);
-  if (waited > MAX_TOTAL_WAIT_MS) errors.push(`waits add up to more than ${MAX_TOTAL_WAIT_MS} ms`);
+  if (shots.size > MAX_SHOTS) { errors.push(`at most ${MAX_SHOTS} shots`); }
+  if (waited > MAX_TOTAL_WAIT_MS) { errors.push(`waits add up to more than ${MAX_TOTAL_WAIT_MS} ms`); }
   return errors;
 }
 
@@ -102,7 +102,7 @@ function lzw(indices, minCode) {
     emit(prefix, size);
     if (next < 4096) {
       dict.set(key, next++);
-      if (next > (1 << size) && size < 12) size++;
+      if (next > (1 << size) && size < 12) { size++; }
     } else {
       emit(clear, size);
       dict = new Map(); next = end + 1; size = minCode + 1;
@@ -111,7 +111,7 @@ function lzw(indices, minCode) {
   }
   emit(prefix, size);
   emit(end, size);
-  if (bitCount > 0) bytes.push(bitBuf & 255);
+  if (bitCount > 0) { bytes.push(bitBuf & 255); }
   return bytes;
 }
 
@@ -119,7 +119,7 @@ function lzw(indices, minCode) {
 function encodeGif(frames, width, height, delayMs) {
   // Build one global palette from every colour used; fall back to RGB332 if over 256.
   let colors = new Set();
-  for (const f of frames) for (let i = 0; i < f.length; i += 4) colors.add((f[i] << 16) | (f[i + 1] << 8) | f[i + 2]);
+  for (const f of frames) { for (let i = 0; i < f.length; i += 4) { colors.add((f[i] << 16) | (f[i + 1] << 8) | f[i + 2]); } }
   let quantized = frames;
   if (colors.size > 256) {
     quantized = frames.map((f) => {
@@ -130,12 +130,12 @@ function encodeGif(frames, width, height, delayMs) {
       return g;
     });
     colors = new Set();
-    for (const f of quantized) for (let i = 0; i < f.length; i += 4) colors.add((f[i] << 16) | (f[i + 1] << 8) | f[i + 2]);
+    for (const f of quantized) { for (let i = 0; i < f.length; i += 4) { colors.add((f[i] << 16) | (f[i + 1] << 8) | f[i + 2]); } }
   }
   const palette = [...colors];
   const lookup = new Map(palette.map((c, i) => [c, i]));
   let bits = 1;
-  while ((1 << bits) < palette.length) bits++;
+  while ((1 << bits) < palette.length) { bits++; }
 
   const out = [];
   const u16 = (n) => out.push(n & 255, (n >> 8) & 255);
@@ -174,7 +174,7 @@ function serveFile(file) {
 
 async function capture({ page: pageFile, scenario, outDir }) {
   const errors = validateScenario(scenario);
-  if (errors.length) throw new Error("Invalid scenario:\n  " + errors.join("\n  "));
+  if (errors.length) { throw new Error("Invalid scenario:\n  " + errors.join("\n  ")); }
   fs.mkdirSync(outDir, { recursive: true });
 
   const server = await serveFile(pageFile);
@@ -194,7 +194,7 @@ async function capture({ page: pageFile, scenario, outDir }) {
     const canvas = frame.locator("canvas").first();
     const size = await canvas.evaluate((c) => ({ w: c.width, h: c.height }));
     // The page is untrusted: keep what it hands back small and well-formed.
-    if (![size.w, size.h].every((n) => Number.isInteger(n) && n > 0 && n <= 1024)) throw new Error("canvas size out of range");
+    if (![size.w, size.h].every((n) => Number.isInteger(n) && n > 0 && n <= 1024)) { throw new Error("canvas size out of range"); }
 
     const shots = [];
     const frames = [];
@@ -204,11 +204,11 @@ async function capture({ page: pageFile, scenario, outDir }) {
       const b64 = await canvas.evaluate((c, sz) => {
         const px = c.getContext("2d").getImageData(0, 0, sz.w, sz.h).data;
         let bin = "";
-        for (let i = 0; i < px.length; i += 0x8000) bin += String.fromCharCode.apply(null, px.subarray(i, i + 0x8000));
+        for (let i = 0; i < px.length; i += 0x8000) { bin += String.fromCharCode.apply(null, px.subarray(i, i + 0x8000)); }
         return btoa(bin);
       }, size);
       const rgba = new Uint8Array(Buffer.from(String(b64), "base64"));
-      if (rgba.length === size.w * size.h * 4) frames.push(rgba);
+      if (rgba.length === size.w * size.h * 4) { frames.push(rgba); }
     };
     const clickCanvasPoint = async (x, y) => {
       const box = await canvas.boundingBox();
@@ -222,7 +222,7 @@ async function capture({ page: pageFile, scenario, outDir }) {
         await clickCanvasPoint(v[0] * 16 + 8, v[1] * 16 + 8);
       } else if (key === "endTurn") {
         const b = await frame.evaluate(() => (typeof BUTTON === "object" && BUTTON ? { x: BUTTON.x, y: BUTTON.y, w: BUTTON.w, h: BUTTON.h } : null));
-        if (!b || ![b.x, b.y, b.w, b.h].every(Number.isFinite)) throw new Error("endTurn: the game has no BUTTON");
+        if (!b || ![b.x, b.y, b.w, b.h].every(Number.isFinite)) { throw new Error("endTurn: the game has no BUTTON"); }
         await clickCanvasPoint(b.x + b.w / 2, b.y + b.h / 2);
       } else if (key === "wait") {
         await page.waitForTimeout(v);
@@ -231,7 +231,7 @@ async function capture({ page: pageFile, scenario, outDir }) {
           ({ path: p, equals }) => {
             let cur = window.__debug;
             for (const part of p.split(".")) {
-              if (cur === null || cur === undefined) return false;
+              if (cur === null || cur === undefined) { return false; }
               cur = cur[part];
             }
             return cur === equals;
@@ -246,7 +246,7 @@ async function capture({ page: pageFile, scenario, outDir }) {
         if (v === "start" && !timer) {
           let busy = false;
           timer = setInterval(async () => {
-            if (busy || frames.length >= MAX_GIF_SECONDS * GIF_FPS) return;
+            if (busy || frames.length >= MAX_GIF_SECONDS * GIF_FPS) { return; }
             busy = true;
             try { await grab(); } catch (e) { /* page closing */ } finally { busy = false; }
           }, 1000 / GIF_FPS);
@@ -257,8 +257,8 @@ async function capture({ page: pageFile, scenario, outDir }) {
       }
     }
     clearInterval(timer);
-    if (pageErrors.length) throw new Error("Page errors during capture:\n" + pageErrors.join("\n"));
-    if (frames.length > 0) fs.writeFileSync(path.join(outDir, "capture.gif"), encodeGif(frames, size.w, size.h, 1000 / GIF_FPS));
+    if (pageErrors.length) { throw new Error("Page errors during capture:\n" + pageErrors.join("\n")); }
+    if (frames.length > 0) { fs.writeFileSync(path.join(outDir, "capture.gif"), encodeGif(frames, size.w, size.h, 1000 / GIF_FPS)); }
     const manifest = { shots, gif: frames.length > 0, frames: frames.length };
     fs.writeFileSync(path.join(outDir, "manifest.json"), JSON.stringify(manifest));
     return manifest;
@@ -276,7 +276,7 @@ async function main() {
   };
   const root = path.join(__dirname, "..");
   const pageFile = opt("page", path.join(root, "dist", "index.html"));
-  if (!fs.existsSync(pageFile)) throw new Error(pageFile + " does not exist. Run `python3 tools/build.py` first.");
+  if (!fs.existsSync(pageFile)) { throw new Error(pageFile + " does not exist. Run `python3 tools/build.py` first."); }
   const scenario = JSON.parse(fs.readFileSync(opt("scenario", path.join(root, "tests", "game", "capture.json")), "utf8"));
   const outDir = opt("out", "media");
   const m = await capture({ page: pageFile, scenario, outDir });

@@ -24,14 +24,14 @@
   function readAll() {
     var out = Object.create(null);
     if (!store) {
-      for (var k in memory) out[k] = memory[k];
+      for (var k in memory) { out[k] = memory[k]; }
       return out;
     }
     for (var i = 0; i < store.length; i++) {
       var full = store.key(i);
-      if (full.indexOf(prefix) !== 0) continue;
+      if (full.indexOf(prefix) !== 0) { continue; }
       var key = full.slice(prefix.length);
-      if (KEY_RE.test(key)) out[key] = store.getItem(full);
+      if (KEY_RE.test(key)) { out[key] = store.getItem(full); }
     }
     return out;
   }
@@ -39,23 +39,23 @@
   function fits(data) {
     var keys = Object.keys(data);
     var total = 0;
-    for (var i = 0; i < keys.length; i++) total += keys[i].length + data[keys[i]].length;
+    for (var i = 0; i < keys.length; i++) { total += keys[i].length + data[keys[i]].length; }
     return keys.length <= MAX_KEYS && total <= MAX_TOTAL;
   }
 
   function write(key, value) {
     var data = readAll();
-    if (value === null) delete data[key];
-    else data[key] = value;
-    if (!fits(data)) return;   // over the quota: drop the write
+    if (value === null) { delete data[key]; }
+    else { data[key] = value; }
+    if (!fits(data)) { return; }   // over the quota: drop the write
     if (!store) {
-      if (value === null) delete memory[key];
-      else memory[key] = value;
+      if (value === null) { delete memory[key]; }
+      else { memory[key] = value; }
       return;
     }
     try {
-      if (value === null) store.removeItem(prefix + key);
-      else store.setItem(prefix + key, value);
+      if (value === null) { store.removeItem(prefix + key); }
+      else { store.setItem(prefix + key, value); }
     } catch (e) {
       // Browser quota exceeded; the game keeps its in-memory copy.
     }
@@ -63,14 +63,14 @@
 
   window.addEventListener("message", function (ev) {
     // Only the frame this page created may talk to the bridge.
-    if (ev.source !== frame.contentWindow) return;
+    if (ev.source !== frame.contentWindow) { return; }
     var m = ev.data;
-    if (!m || typeof m !== "object") return;
+    if (!m || typeof m !== "object") { return; }
     var validKey = typeof m.key === "string" && KEY_RE.test(m.key);
     if (m.mt === "ready") {
       var snapshot = readAll();
       var plain = {};
-      for (var k in snapshot) plain[k] = snapshot[k];
+      for (var k in snapshot) { plain[k] = snapshot[k]; }
       frame.contentWindow.postMessage({ mt: "snapshot", data: plain, persistent: store !== null }, "*");
     } else if (m.mt === "set" && validKey && typeof m.value === "string" && m.value.length <= MAX_VALUE) {
       write(m.key, m.value);

@@ -9,7 +9,7 @@
   var names = Object.getOwnPropertyNames(window);
   for (var i = 0; i < names.length; i++) {
     var name = names[i];
-    if (!/^(webkit|moz)?RTC/.test(name) && name !== "WebTransport") continue;
+    if (!/^(webkit|moz)?RTC/.test(name) && name !== "WebTransport") { continue; }
     try {
       delete window[name];
     } catch (e) {
@@ -59,12 +59,12 @@ var Save = (function () {
       return;
     }
     window.addEventListener("message", function onMessage(ev) {
-      if (ev.source !== window.parent || !ev.data || ev.data.mt !== "snapshot") return;
+      if (ev.source !== window.parent || !ev.data || ev.data.mt !== "snapshot") { return; }
       window.removeEventListener("message", onMessage);
       var incoming = ev.data.data || {};
       for (var key in incoming) {
         // Writes made before the snapshot arrived win.
-        if (typeof incoming[key] === "string" && !(key in data)) data[key] = incoming[key];
+        if (typeof incoming[key] === "string" && !(key in data)) { data[key] = incoming[key]; }
       }
       persistent = ev.data.persistent === true;
       resolve();
@@ -73,7 +73,7 @@ var Save = (function () {
   });
 
   function send(message) {
-    if (inShell) window.parent.postMessage(message, "*");
+    if (inShell) { window.parent.postMessage(message, "*"); }
   }
 
   return Object.freeze({

@@ -53,6 +53,12 @@ npm test                        # game and security suites, in Chromium
 
 `python3 tools/build.py` builds once. It refuses a `game.html` that uses a browser API outside `tools/api-allowlist.json`, and says which line.
 
+## Working with Claude
+
+- **On an issue you opened:** mention `@claude` in the body or a comment.
+- **On a PR:** review as usual, inline comments included, then leave one ordinary PR comment that mentions `@claude`, such as "@claude please address my review". Inline review comments and review summaries don't start a run by themselves ([SECURITY.md](SECURITY.md) explains why). Once a run starts, Claude reads them along with the rest of the PR.
+- Claude reads only your comments, and acts only on issues and PRs that you (or Claude) opened. It can change `game.html`, `tests/game/` and this README. For anything else it describes the change for you to make.
+
 ## Previews, downloads and screenshots
 
 - Every open PR gets a playable preview at `https://jacque006.github.io/micro-tactics/pr/<number>/`. A comment on the PR links it and shows up to 3 screenshots and a GIF, and it updates on every push.

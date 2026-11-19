@@ -12,7 +12,7 @@ Micro Tactics: a turn-based tactics game in one HTML file. The game (`game.html`
 2. Use only the browser APIs in `tools/api-allowlist.json`. **(CI: build)** If the game needs another, ask in the issue and say why. Never work around the lint: no property names built from strings, no aliases for globals, no reaching the window through other objects. A PR that does is rejected whole.
 3. No network code, URLs, new dependencies or binary files. Draw art and synthesize sound in code, or inline it as a `data:` URI of a type the allowlist permits, with a comment naming its origin, author, license and URL.
 4. Keep `window.__debug` (`player`, `enemies`, `wave`). The tests and the capture tool read it.
-5. One `<script>`, no inline event handlers, only the tags `tools/build.py` allows. **(CI: build)**
+5. One `<script>`, starting with `"use strict";`, no inline event handlers, and only the tags `tools/build.py` allows. Braces around every branch and loop body, an explicit `;` after every statement, and no line that starts with `(`, `[` or `` ` `` to continue the line above. **(CI: build)**
 6. 16px tiles for the board and units. Text and panels may use other sizes.
 
 ## How you work
@@ -29,3 +29,4 @@ Micro Tactics: a turn-based tactics game in one HTML file. The game (`game.html`
 ## Style
 
 15. Plain, readable code over cleverness. The owner reads every line.
+16. Don't swallow errors. A `catch` that ignores an error needs a comment saying why that error is expected; anything else gets logged or rethrown. `Save.set` throws on a bad key or an oversized value, so let that surface.

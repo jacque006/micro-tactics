@@ -32,6 +32,7 @@ All of this lives inside the one file, so it holds the same way hosted on Pages,
   - URL strings, and `data:` URIs that aren't images or audio
 
   It understands scopes, so a local variable named `fetch` is fine and the global `fetch` is not.
+- The same lint also enforces style rules on every JavaScript file in the repo: braces on every branch and loop, explicit semicolons, no line that continues the one above, and `"use strict"` in the game and shell. These are for correctness, not security. The allowlist check reads the parsed syntax tree, the same one the browser runs, so layout can't hide a call from it.
 - These are tripwires, not walls. A determined author can hide a property name in a computed string. If that happens the walls above still hold; the tripwire just makes sure a reviewer notices.
 
 ## Pipeline
@@ -42,6 +43,7 @@ All of this lives inside the one file, so it holds the same way hosted on Pages,
 | `pages.yml` | after CI, daily, by hand | main's only | read (assemble), Pages (deploy), PR comments (comment) | none |
 | `claude.yml` | the owner's `@claude` on an issue or PR the owner (or Claude) opened | main's | contents, PRs and issues write; no workflows permission | Claude token, in the `claude` environment |
 
+- **Agent triggers.** `claude.yml` starts only on issue and PR comments (`issue_comment`) and new issues. It deliberately doesn't listen for review events (`pull_request_review`, `pull_request_review_comment`). Those run the PR's own copy of the workflow, on the PR's merge ref, and the `claude` environment exists to keep the token away from exactly that. A top-level comment always runs `main`'s copy. The action still reads review comments and summaries into Claude's context, filtered to the owner's and to ones posted before the trigger.
 - **Previews.** `pages.yml` takes only `game.html` and `tests/game/capture.json` from each open PR whose branch lives in this repository. It fetches them as data through the API and builds them with main's shell and tools. It never runs a PR's tools, tests or install scripts. The game runs only inside its sandboxed frame, in a Chromium whose only proxy is a closed port. Previews live at `/pr/<number>/`, under a banner and with their own save namespace.
 - **Screenshots and GIFs.** main's `tools/capture.js` follows the PR's JSON scenario: taps, waits, checks on `__debug`, and shots. No PR code runs outside the browser. The output is size-checked and published to Pages. The comment job writes its text from the build manifest only.
 - **Downloads.** CI uploads every branch's build as a single HTML file. That copy is built with the branch's own tools. The preview's download link is built with main's.
